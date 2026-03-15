@@ -1,262 +1,64 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import {
-  createChart,
-  type IChartApi,
-  ColorType,
-  LineStyle,
-} from "lightweight-charts";
-import { sma, bollingerBands } from "../lib/indicators";
-import type { MarketData } from "../lib/types";
+import { useEffect, useRef, memo } from "react";
 
-interface CandleDataPoint {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
+interface PriceChartProps {
+  mode: "invest" | "daytrade";
 }
 
-interface ChartDataPoint {
-  time: string;
-  value: number;
-}
-
-const TIMEFRAMES = [
-  { label: "7d", days: 7 },
-  { label: "30d", days: 30 },
-  { label: "90d", days: 90 },
-  { label: "1y", days: 365 },
-];
-
-function formatDate(ts: number): string {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function toCandleData(candles: MarketData["candles_history"]): CandleDataPoint[] {
-  const seen = new Set<string>();
-  return candles
-    .map((c) => ({
-      time: formatDate(c.time),
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }))
-    .filter((item) => {
-      if (seen.has(item.time)) return false;
-      seen.add(item.time);
-      return true;
-    });
-}
-
-function toChartData(prices: [number, number][]): ChartDataPoint[] {
-  const seen = new Set<string>();
-  return prices
-    .map(([ts, price]) => ({
-      time: formatDate(ts),
-      value: price,
-    }))
-    .filter((item) => {
-      if (seen.has(item.time)) return false;
-      seen.add(item.time);
-      return true;
-    });
-}
-
-export default function PriceChart({ market }: { market: MarketData }) {
+function PriceChartInner({ mode }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const [selectedDays, setSelectedDays] = useState(90);
 
   useEffect(() => {
-    if (!containerRef.current || !market.candles_history?.length) return;
+    if (!containerRef.current) return;
 
-    if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-    }
+    containerRef.current.innerHTML = "";
 
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "#1a1d29" },
-        textColor: "#94a3b8",
-      },
-      grid: {
-        vertLines: { color: "#2d334822" },
-        horzLines: { color: "#2d334822" },
-      },
-      width: containerRef.current.clientWidth,
-      height: 400,
-      crosshair: {
-        horzLine: { color: "#64748b" },
-        vertLine: { color: "#64748b" },
-      },
-      timeScale: {
-        borderColor: "#2d3348",
-        timeVisible: false,
-      },
-      rightPriceScale: {
-        borderColor: "#2d3348",
-      },
+    const script = document.createElement("script");
+    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    script.type = "text/javascript";
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      autosize: true,
+      symbol: "BINANCE:BTCUSDT",
+      interval: mode === "invest" ? "D" : "15",
+      timezone: "Etc/UTC",
+      theme: "dark",
+      style: "1",
+      locale: "en",
+      backgroundColor: "#1a1d29",
+      gridColor: "#2d334822",
+      hide_top_toolbar: false,
+      hide_legend: false,
+      allow_symbol_change: false,
+      save_image: false,
+      calendar: false,
+      hide_volume: false,
+      support_host: "https://www.tradingview.com",
+      studies: [],
     });
 
-    chartRef.current = chart;
+    const wrapper = document.createElement("div");
+    wrapper.className = "tradingview-widget-container";
+    wrapper.style.height = "100%";
+    wrapper.style.width = "100%";
 
-    const visibleCandles = market.candles_history.slice(-selectedDays);
-    const candleData = toCandleData(visibleCandles);
+    const widgetDiv = document.createElement("div");
+    widgetDiv.className = "tradingview-widget-container__widget";
+    widgetDiv.style.height = "calc(100% - 32px)";
+    widgetDiv.style.width = "100%";
 
-    // Candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
-      borderUpColor: "#22c55e",
-      borderDownColor: "#ef4444",
-      priceLineVisible: false,
-    });
-    candlestickSeries.setData(candleData as any);
-
-    // MA & BB calculations use all data for accuracy
-    const allPrices = market.prices_history.map(([, p]) => p);
-    const allChartData = toChartData(market.prices_history);
-    const sliceStart = allChartData.length - selectedDays;
-
-    // 50d MA
-    if (selectedDays >= 30) {
-      const ma50Full = sma(allPrices, 50);
-      const ma50Series = chart.addLineSeries({
-        color: "#eab308",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        priceLineVisible: false,
-      });
-      const ma50Data = allChartData
-        .slice(-selectedDays)
-        .map((d, i) => ({
-          time: d.time,
-          value: ma50Full[sliceStart + i],
-        }))
-        .filter((d) => d.value && !isNaN(d.value));
-      ma50Series.setData(ma50Data as any);
-    }
-
-    // 200d MA (only on 1y view)
-    if (selectedDays >= 200) {
-      const ma200Full = sma(allPrices, 200);
-      const ma200Series = chart.addLineSeries({
-        color: "#ef4444",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        priceLineVisible: false,
-      });
-      const ma200Data = allChartData
-        .slice(-selectedDays)
-        .map((d, i) => ({
-          time: d.time,
-          value: ma200Full[sliceStart + i],
-        }))
-        .filter((d) => d.value && !isNaN(d.value));
-      ma200Series.setData(ma200Data as any);
-    }
-
-    // Bollinger Bands
-    if (selectedDays >= 20) {
-      const bbFull = bollingerBands(allPrices, 20, 2);
-
-      const bbUpperSeries = chart.addLineSeries({
-        color: "#64748b44",
-        lineWidth: 1,
-        priceLineVisible: false,
-      });
-      const bbUpperData = allChartData
-        .slice(-selectedDays)
-        .map((d, i) => ({
-          time: d.time,
-          value: bbFull.upper[sliceStart + i],
-        }))
-        .filter((d) => d.value && !isNaN(d.value));
-      bbUpperSeries.setData(bbUpperData as any);
-
-      const bbLowerSeries = chart.addLineSeries({
-        color: "#64748b44",
-        lineWidth: 1,
-        priceLineVisible: false,
-      });
-      const bbLowerData = allChartData
-        .slice(-selectedDays)
-        .map((d, i) => ({
-          time: d.time,
-          value: bbFull.lower[sliceStart + i],
-        }))
-        .filter((d) => d.value && !isNaN(d.value));
-      bbLowerSeries.setData(bbLowerData as any);
-    }
-
-    chart.timeScale().fitContent();
-
-    const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
-    };
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-      chartRef.current = null;
-    };
-  }, [market, selectedDays]);
+    wrapper.appendChild(widgetDiv);
+    wrapper.appendChild(script);
+    containerRef.current.appendChild(wrapper);
+  }, [mode]);
 
   return (
     <div className="panel">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold">Price Chart</h2>
-        <div className="flex gap-1">
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.days}
-              onClick={() => setSelectedDays(tf.days)}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                selectedDays === tf.days
-                  ? "bg-blue-600 text-white"
-                  : "bg-[#242836] text-gray-400 hover:bg-[#2d3348] hover:text-gray-200"
-              }`}
-            >
-              {tf.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="flex gap-4 text-xs text-gray-500 mb-2">
-        <span className="flex items-center gap-1">
-          <span className="inline-flex gap-0.5">
-            <span className="w-1.5 h-3 bg-green-500 inline-block"></span>
-            <span className="w-1.5 h-3 bg-red-500 inline-block"></span>
-          </span>
-          OHLC
-        </span>
-        {selectedDays >= 30 && (
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-yellow-500 inline-block"></span> 50d MA
-          </span>
-        )}
-        {selectedDays >= 200 && (
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-red-500 inline-block"></span> 200d MA
-          </span>
-        )}
-        {selectedDays >= 20 && (
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-gray-500 inline-block"></span> BB
-          </span>
-        )}
-      </div>
-      <div ref={containerRef} className="w-full" />
+      <div ref={containerRef} className="w-full" style={{ height: "700px" }} />
     </div>
   );
 }
+
+const PriceChart = memo(PriceChartInner);
+export default PriceChart;

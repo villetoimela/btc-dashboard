@@ -21,6 +21,7 @@ export default function Home() {
   const [onchain, setOnchain] = useState<OnchainData | null>(null);
   const [score, setScore] = useState<DashboardScore | null>(null);
   const [shortTermScore, setShortTermScore] = useState<ShortTermScore | null>(null);
+  const [binanceData, setBinanceData] = useState<BinanceData | null>(null);
   const [whaleData, setWhaleData] = useState<WhaleData | null>(null);
   const whaleRef = useRef<WhaleData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +56,7 @@ export default function Home() {
         throw new Error("Binance API call failed");
       }
       const binData: BinanceData = await binanceRes.json();
+      setBinanceData(binData);
       if (whaleRes?.ok) {
         const whales: WhaleData = await whaleRes.json();
         whaleRef.current = whales;
@@ -217,7 +219,7 @@ export default function Home() {
       )}
 
       {/* Price chart — always visible */}
-      <PriceChart market={market} />
+      <PriceChart mode={activeTab} />
 
       {/* Tab-specific content */}
       {activeTab === "invest" ? (
