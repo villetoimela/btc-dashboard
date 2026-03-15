@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 async function fetchWithTimeout(url: string, timeoutMs = 10000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, next: { revalidate: 60 } });
+    const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
     return res;
   } catch {
@@ -64,6 +64,8 @@ export async function GET() {
       change_4h,
       change_24h,
       volume_24h,
+    }, {
+      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
     });
   } catch (error) {
     console.error("Binance API error:", error);

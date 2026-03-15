@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 async function fetchWithTimeout(url: string, timeoutMs = 10000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, next: { revalidate: 300 } });
+    const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
     return res;
   } catch {
@@ -66,6 +66,8 @@ export async function GET() {
       topTraderPositionRatio: parseRatioData(positionData),
       topTraderAccountRatio: parseRatioData(accountData),
       globalAccountRatio: parseRatioData(globalData),
+    }, {
+      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
     });
   } catch (error) {
     console.error("Whale data API error:", error);

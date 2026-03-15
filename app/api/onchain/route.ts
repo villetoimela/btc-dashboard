@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 
-export const revalidate = 600; // 10min cache
+export const dynamic = "force-dynamic";
 
 const HALVING_INTERVAL = 210000;
 // Last halving was block 840000 (April 2024)
 const LAST_HALVING_BLOCK = 840000;
 const NEXT_HALVING_BLOCK = LAST_HALVING_BLOCK + HALVING_INTERVAL; // 1050000
 
-async function fetchJSON(url: string, revalidateSeconds = 600) {
+async function fetchJSON(url: string) {
   try {
-    const res = await fetch(url, { next: { revalidate: revalidateSeconds } });
+    const res = await fetch(url);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -17,9 +17,9 @@ async function fetchJSON(url: string, revalidateSeconds = 600) {
   }
 }
 
-async function fetchText(url: string, revalidateSeconds = 600) {
+async function fetchText(url: string) {
   try {
-    const res = await fetch(url, { next: { revalidate: revalidateSeconds } });
+    const res = await fetch(url);
     if (!res.ok) return null;
     return res.text();
   } catch {
@@ -84,6 +84,8 @@ export async function GET() {
       current_block: currentBlock,
       blocks_until_halving: blocksUntilHalving,
       estimated_halving_date: halvingDate,
+    }, {
+      headers: { "Cache-Control": "public, s-maxage=600, stale-while-revalidate=1200" },
     });
   } catch (error) {
     console.error("Onchain API error:", error);

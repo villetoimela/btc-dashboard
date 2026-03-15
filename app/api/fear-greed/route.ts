@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 
-export const revalidate = 3600; // 1h cache
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const res = await fetch("https://api.alternative.me/fng/?limit=31", {
-      next: { revalidate: 3600 },
-    });
+    const res = await fetch("https://api.alternative.me/fng/?limit=31");
 
     if (!res.ok) {
       throw new Error("Fear & Greed API error");
@@ -25,6 +23,8 @@ export async function GET() {
       value: parseInt(current.value),
       value_classification: current.value_classification,
       history: history.reverse(), // oldest first
+    }, {
+      headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200" },
     });
   } catch (error) {
     console.error("Fear & Greed API error:", error);
