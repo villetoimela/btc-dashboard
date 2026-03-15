@@ -55,7 +55,7 @@ function PriceChartInner({ mode }: PriceChartProps) {
 
   return (
     <div className="panel">
-      <div ref={containerRef} className="w-full" style={{ height: "700px" }} />
+      <div ref={containerRef} className="w-full h-[400px] md:h-[700px]" />
     </div>
   );
 }
