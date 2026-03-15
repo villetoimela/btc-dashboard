@@ -9,6 +9,7 @@ export interface MarketData {
   btc_dominance: number;
   prices_history: [number, number][]; // [timestamp, price]
   volumes_history: [number, number][]; // [timestamp, volume]
+  candles_history: { time: number; open: number; high: number; low: number; close: number }[];
 }
 
 export interface FearGreedData {

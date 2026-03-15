@@ -10,6 +10,14 @@ import {
 import { sma, bollingerBands } from "../lib/indicators";
 import type { MarketData } from "../lib/types";
 
+interface CandleDataPoint {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 interface ChartDataPoint {
   time: string;
   value: number;
@@ -22,14 +30,35 @@ const TIMEFRAMES = [
   { label: "1y", days: 365 },
 ];
 
+function formatDate(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function toCandleData(candles: MarketData["candles_history"]): CandleDataPoint[] {
+  const seen = new Set<string>();
+  return candles
+    .map((c) => ({
+      time: formatDate(c.time),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }))
+    .filter((item) => {
+      if (seen.has(item.time)) return false;
+      seen.add(item.time);
+      return true;
+    });
+}
+
 function toChartData(prices: [number, number][]): ChartDataPoint[] {
   const seen = new Set<string>();
   return prices
-    .map(([ts, price]) => {
-      const d = new Date(ts);
-      const time = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      return { time, value: price };
-    })
+    .map(([ts, price]) => ({
+      time: formatDate(ts),
+      value: price,
+    }))
     .filter((item) => {
       if (seen.has(item.time)) return false;
       seen.add(item.time);
@@ -43,7 +72,7 @@ export default function PriceChart({ market }: { market: MarketData }) {
   const [selectedDays, setSelectedDays] = useState(90);
 
   useEffect(() => {
-    if (!containerRef.current || !market.prices_history.length) return;
+    if (!containerRef.current || !market.candles_history?.length) return;
 
     if (chartRef.current) {
       chartRef.current.remove();
@@ -76,16 +105,20 @@ export default function PriceChart({ market }: { market: MarketData }) {
 
     chartRef.current = chart;
 
-    const visibleData = market.prices_history.slice(-selectedDays);
-    const chartData = toChartData(visibleData);
+    const visibleCandles = market.candles_history.slice(-selectedDays);
+    const candleData = toCandleData(visibleCandles);
 
-    // Price line
-    const priceSeries = chart.addLineSeries({
-      color: "#3b82f6",
-      lineWidth: 2,
+    // Candlestick series
+    const candlestickSeries = chart.addCandlestickSeries({
+      upColor: "#22c55e",
+      downColor: "#ef4444",
+      wickUpColor: "#22c55e",
+      wickDownColor: "#ef4444",
+      borderUpColor: "#22c55e",
+      borderDownColor: "#ef4444",
       priceLineVisible: false,
     });
-    priceSeries.setData(chartData as any);
+    candlestickSeries.setData(candleData as any);
 
     // MA & BB calculations use all data for accuracy
     const allPrices = market.prices_history.map(([, p]) => p);
@@ -201,7 +234,11 @@ export default function PriceChart({ market }: { market: MarketData }) {
       </div>
       <div className="flex gap-4 text-xs text-gray-500 mb-2">
         <span className="flex items-center gap-1">
-          <span className="w-3 h-0.5 bg-blue-500 inline-block"></span> Price
+          <span className="inline-flex gap-0.5">
+            <span className="w-1.5 h-3 bg-green-500 inline-block"></span>
+            <span className="w-1.5 h-3 bg-red-500 inline-block"></span>
+          </span>
+          OHLC
         </span>
         {selectedDays >= 30 && (
           <span className="flex items-center gap-1">

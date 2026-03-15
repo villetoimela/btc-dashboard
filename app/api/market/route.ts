@@ -58,6 +58,15 @@ export async function GET() {
       parseFloat(k[7] as string),
     ]);
 
+    // Parse OHLCV candles for candlestick chart
+    const candlesHistory = dailyKlines.map((k) => ({
+      time: Number(k[0]),
+      open: parseFloat(k[1] as string),
+      high: parseFloat(k[2] as string),
+      low: parseFloat(k[3] as string),
+      close: parseFloat(k[4] as string),
+    }));
+
     // Calculate 7d and 30d changes from daily candles
     const currentClose = pricesHistory.length > 0
       ? pricesHistory[pricesHistory.length - 1][1]
@@ -107,6 +116,7 @@ export async function GET() {
       btc_dominance: btcDominance,
       prices_history: pricesHistory,
       volumes_history: volumesHistory,
+      candles_history: candlesHistory,
     }, {
       headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
     });
