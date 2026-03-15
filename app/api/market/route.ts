@@ -17,32 +17,49 @@ async function fetchWithTimeout(url: string, timeoutMs = 10000) {
 
 export async function GET() {
   try {
-    // Fetch from Binance (primary) and CoinGecko (only for dominance + market cap)
-    const [dailyKlinesRes, tickerRes, eurTickerRes, globalRes] = await Promise.all([
+    // Fetch from Binance.US (avoids HTTP 451 geo-block on Netlify US servers)
+    // EUR price: convert USD via frankfurter.app since Binance.US has no BTCEUR pair
+    const [dailyKlinesRes, tickerRes, eurRateRes, globalRes] = await Promise.all([
       fetchWithTimeout(
-        "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=365"
+        "https://api.binance.us/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=365"
       ),
       fetchWithTimeout(
-        "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT"
+        "https://api.binance.us/api/v3/ticker/24hr?symbol=BTCUSDT"
       ),
+      // Free forex rate API — failure is non-fatal, we'll use a fallback rate
       fetchWithTimeout(
-        "https://api.binance.com/api/v3/ticker/price?symbol=BTCEUR"
-      ),
+        "https://api.frankfurter.app/latest?from=USD&to=EUR"
+      ).catch(() => null),
       // CoinGecko only for BTC dominance and market cap — failure is non-fatal
       fetchWithTimeout("https://api.coingecko.com/api/v3/global").catch(() => null),
     ]);
 
-    if (!dailyKlinesRes.ok || !tickerRes.ok || !eurTickerRes.ok) {
-      throw new Error("Binance API error");
+    if (!dailyKlinesRes.ok || !tickerRes.ok) {
+      const errors = [];
+      if (!dailyKlinesRes.ok) errors.push(`klines: ${dailyKlinesRes.status} ${await dailyKlinesRes.text().catch(() => "")}`);
+      if (!tickerRes.ok) errors.push(`ticker: ${tickerRes.status} ${await tickerRes.text().catch(() => "")}`);
+      throw new Error(`Binance API error: ${errors.join("; ")}`);
     }
 
     const dailyKlines: unknown[][] = await dailyKlinesRes.json();
     const tickerData = await tickerRes.json();
-    const eurTickerData = await eurTickerRes.json();
 
     // Parse Binance data
     const priceUsd = parseFloat(tickerData.lastPrice);
-    const priceEur = parseFloat(eurTickerData.price);
+
+    // Calculate EUR price from USD/EUR exchange rate
+    let usdToEur = 0.92; // reasonable fallback rate
+    if (eurRateRes && eurRateRes.ok) {
+      try {
+        const eurRateData = await eurRateRes.json();
+        usdToEur = eurRateData.rates?.EUR || usdToEur;
+      } catch {
+        console.warn("Failed to parse EUR rate, using fallback rate");
+      }
+    } else {
+      console.warn("EUR rate fetch failed, using fallback rate");
+    }
+    const priceEur = priceUsd * usdToEur;
     const change24h = parseFloat(tickerData.priceChangePercent) || 0;
     const volume24h = parseFloat(tickerData.quoteVolume) || 0; // Quote volume is already in USD
 
@@ -121,9 +138,10 @@ export async function GET() {
       headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
     });
   } catch (error) {
-    console.error("Market API error:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Market API error:", message);
     return NextResponse.json(
-      { error: "Failed to fetch market data" },
+      { error: "Failed to fetch market data", details: message },
       { status: 500 }
     );
   }

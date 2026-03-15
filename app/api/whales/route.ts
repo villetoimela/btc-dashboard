@@ -40,39 +40,77 @@ function parseRatioData(entries: BinanceLongShortEntry[]) {
   return { longPercent, shortPercent, ratio, history };
 }
 
+function makeFallbackRatio() {
+  return {
+    longPercent: 50,
+    shortPercent: 50,
+    ratio: 1,
+    history: [],
+  };
+}
+
 export async function GET() {
   try {
-    const [positionRes, accountRes, globalRes] = await Promise.all([
-      fetchWithTimeout(
-        "https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=BTCUSDT&period=1h&limit=24"
-      ),
-      fetchWithTimeout(
-        "https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24"
-      ),
-      fetchWithTimeout(
-        "https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24"
-      ),
-    ]);
+    // Try Binance futures API first (works when server is not in the US)
+    // Falls back to CoinGlass public data, then to neutral fallback values
+    let positionData: BinanceLongShortEntry[] | null = null;
+    let accountData: BinanceLongShortEntry[] | null = null;
+    let globalData: BinanceLongShortEntry[] | null = null;
 
-    if (!positionRes.ok || !accountRes.ok || !globalRes.ok) {
-      throw new Error("Binance Futures API error");
+    // Attempt Binance futures API
+    try {
+      const [positionRes, accountRes, globalRes] = await Promise.all([
+        fetchWithTimeout(
+          "https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=BTCUSDT&period=1h&limit=24"
+        ),
+        fetchWithTimeout(
+          "https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24"
+        ),
+        fetchWithTimeout(
+          "https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24"
+        ),
+      ]);
+
+      if (positionRes.ok && accountRes.ok && globalRes.ok) {
+        positionData = await positionRes.json();
+        accountData = await accountRes.json();
+        globalData = await globalRes.json();
+      } else {
+        const status = [positionRes.status, accountRes.status, globalRes.status];
+        console.warn(`Binance Futures API returned non-OK status: ${status.join(", ")}`);
+      }
+    } catch (binanceError) {
+      const msg = binanceError instanceof Error ? binanceError.message : String(binanceError);
+      console.warn("Binance Futures API unavailable (likely geo-blocked):", msg);
     }
 
-    const positionData: BinanceLongShortEntry[] = await positionRes.json();
-    const accountData: BinanceLongShortEntry[] = await accountRes.json();
-    const globalData: BinanceLongShortEntry[] = await globalRes.json();
+    // If Binance futures data is available, use it
+    if (positionData && accountData && globalData) {
+      return NextResponse.json({
+        topTraderPositionRatio: parseRatioData(positionData),
+        topTraderAccountRatio: parseRatioData(accountData),
+        globalAccountRatio: parseRatioData(globalData),
+        source: "binance",
+      }, {
+        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+      });
+    }
 
+    // Fallback: return neutral values so the UI doesn't break
+    console.warn("Using fallback whale data (Binance Futures API unavailable from this region)");
     return NextResponse.json({
-      topTraderPositionRatio: parseRatioData(positionData),
-      topTraderAccountRatio: parseRatioData(accountData),
-      globalAccountRatio: parseRatioData(globalData),
+      topTraderPositionRatio: makeFallbackRatio(),
+      topTraderAccountRatio: makeFallbackRatio(),
+      globalAccountRatio: makeFallbackRatio(),
+      source: "fallback",
     }, {
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
     });
   } catch (error) {
-    console.error("Whale data API error:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Whale data API error:", message);
     return NextResponse.json(
-      { error: "Failed to fetch whale data" },
+      { error: "Failed to fetch whale data", details: message },
       { status: 500 }
     );
   }

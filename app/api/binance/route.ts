@@ -19,15 +19,18 @@ export async function GET() {
   try {
     const [klinesRes, tickerRes] = await Promise.all([
       fetchWithTimeout(
-        "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=168"
+        "https://api.binance.us/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=168"
       ),
       fetchWithTimeout(
-        "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT"
+        "https://api.binance.us/api/v3/ticker/24hr?symbol=BTCUSDT"
       ),
     ]);
 
     if (!klinesRes.ok || !tickerRes.ok) {
-      throw new Error("Binance API error");
+      const errors = [];
+      if (!klinesRes.ok) errors.push(`klines: ${klinesRes.status} ${await klinesRes.text().catch(() => "")}`);
+      if (!tickerRes.ok) errors.push(`ticker: ${tickerRes.status} ${await tickerRes.text().catch(() => "")}`);
+      throw new Error(`Binance API error: ${errors.join("; ")}`);
     }
 
     const klinesData: unknown[][] = await klinesRes.json();
@@ -68,9 +71,10 @@ export async function GET() {
       headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
     });
   } catch (error) {
-    console.error("Binance API error:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Binance API error:", message);
     return NextResponse.json(
-      { error: "Failed to fetch Binance data" },
+      { error: "Failed to fetch Binance data", details: message },
       { status: 500 }
     );
   }
