@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #1a1d29;
+  --bg-tertiary: #242836;
+  --border-color: #2d3348;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --green: #22c55e;
+  --green-light: #86efac;
+  --yellow: #eab308;
+  --orange: #f97316;
+  --red: #ef4444;
+  --blue: #3b82f6;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.panel {
+  @apply bg-[#1a1d29] border border-[#2d3348] rounded-xl p-4 md:p-5;
+}
+
+.indicator-row {
+  @apply flex items-center justify-between py-2 border-b border-[#2d3348] last:border-b-0;
+}
+
+.badge-green { @apply bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm font-semibold; }
+.badge-yellow { @apply bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm font-semibold; }
+.badge-red { @apply bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-sm font-semibold; }
+.badge-orange { @apply bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full text-sm font-semibold; }
+
+.spinner {
+  @apply animate-spin h-8 w-8 border-4 border-gray-600 border-t-blue-500 rounded-full;
+}
