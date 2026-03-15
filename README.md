@@ -10,7 +10,8 @@ Real-time Bitcoin dashboard with technical indicators, market sentiment analysis
 - **11 weighted indicators** for long-term scoring (RSI, MACD, MA cross, Bollinger Bands, Fear & Greed, cycle position, etc.)
 - **6 intraday indicators** using Binance 1h candle data for short-term signals
 - **Whale tracking** — top trader long/short ratios from Binance Futures
-- **Interactive price chart** with MA, Bollinger Bands, and multiple timeframes
+- **Real-time TradingView chart** — embedded Binance BTCUSDT chart with full TradingView controls
+- **Live price updates** every 5 seconds directly from Binance
 - **Auto-refresh** — market data every 60s, intraday data every 30s
 - **Mobile responsive** dark theme UI
 
@@ -18,7 +19,8 @@ Real-time Bitcoin dashboard with technical indicators, market sentiment analysis
 
 | Source | Data |
 |---|---|
-| Binance | Price, candles (1h + 1d), volume, whale long/short ratios |
+| Binance / Binance.US | Price, candles (1h + 1d), volume, whale long/short ratios |
+| TradingView | Embedded real-time chart widget |
 | CoinGecko | BTC dominance, market cap |
 | Alternative.me | Fear & Greed Index |
 | Mempool.space | Hashrate, mempool, fees, block data |
@@ -55,5 +57,5 @@ Works with Netlify, Vercel, or any platform that supports Next.js.
 - Next.js 14 (App Router)
 - TypeScript
 - Tailwind CSS
-- TradingView Lightweight Charts
+- TradingView Embedded Widget
 - Recharts
