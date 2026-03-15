@@ -15,7 +15,7 @@ import WhalePanel from "./components/WhalePanel";
 type Tab = "invest" | "daytrade";
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>("invest");
+  const [activeTab, setActiveTab] = useState<Tab>("daytrade");
   const [market, setMarket] = useState<MarketData | null>(null);
   const [fearGreed, setFearGreed] = useState<FearGreedData | null>(null);
   const [onchain, setOnchain] = useState<OnchainData | null>(null);
