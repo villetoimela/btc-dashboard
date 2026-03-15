@@ -28,6 +28,22 @@ export default function Home() {
   const [binanceError, setBinanceError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
+  const fetchPrice = useCallback(async () => {
+    try {
+      const [usdRes, eurRes] = await Promise.all([
+        fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"),
+        fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCEUR"),
+      ]);
+      if (usdRes.ok && eurRes.ok) {
+        const usd = await usdRes.json();
+        const eur = await eurRes.json();
+        setMarket((prev) =>
+          prev ? { ...prev, price_usd: parseFloat(usd.price), price_eur: parseFloat(eur.price) } : prev
+        );
+      }
+    } catch {}
+  }, []);
+
   const fetchBinanceAndWhales = useCallback(async () => {
     try {
       setBinanceError(null);
@@ -87,11 +103,13 @@ export default function Home() {
     fetchBinanceAndWhales();
     const mainInterval = setInterval(fetchData, 60000);
     const binanceInterval = setInterval(fetchBinanceAndWhales, 30000);
+    const priceInterval = setInterval(fetchPrice, 5000);
     return () => {
       clearInterval(mainInterval);
       clearInterval(binanceInterval);
+      clearInterval(priceInterval);
     };
-  }, [fetchData, fetchBinanceAndWhales]);
+  }, [fetchData, fetchBinanceAndWhales, fetchPrice]);
 
   if (loading) {
     return (
