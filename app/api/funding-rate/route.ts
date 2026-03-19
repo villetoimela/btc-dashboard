@@ -54,20 +54,12 @@ export async function GET() {
       (await tryFundingRate("https://api.binance.com"));
 
     if (!data) {
-      // Return fallback neutral data so the UI doesn't break
-      console.warn("Using fallback funding rate data (all endpoints unavailable)");
+      // Return 500 so scoring skips this indicator entirely
+      // (returning neutral data would inject a false bullish signal)
+      console.warn("Funding rate unavailable from all endpoints");
       return NextResponse.json(
-        {
-          current_rate: 0,
-          avg_rate_7d: 0,
-          history: [],
-          source: "fallback",
-        },
-        {
-          headers: {
-            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
-          },
-        }
+        { error: "Funding rate unavailable" },
+        { status: 502 }
       );
     }
 

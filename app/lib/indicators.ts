@@ -320,21 +320,32 @@ export function adx(highs: number[], lows: number[], closes: number[], period: n
  * Volume Weighted Average Price (VWAP)
  * Cumulative VWAP: sum(typical_price * volume) / sum(volume)
  * where typical_price = (H+L+C)/3
+ * Resets daily at UTC midnight when timestamps are provided,
+ * otherwise falls back to resetInterval-based reset.
  */
 export function vwap(
   highs: number[],
   lows: number[],
   closes: number[],
   volumes: number[],
+  timestamps?: number[],
   resetInterval: number = 24
 ): number[] {
   const result: number[] = [];
   let cumulativeTPV = 0;
   let cumulativeVol = 0;
+  let currentDay = -1;
 
   for (let i = 0; i < closes.length; i++) {
-    // Reset cumulative sums at the start of each session
-    if (i % resetInterval === 0) {
+    // Reset at UTC midnight if timestamps available, else by interval
+    if (timestamps && timestamps[i]) {
+      const day = Math.floor(timestamps[i] / 86400000); // ms to days
+      if (day !== currentDay) {
+        cumulativeTPV = 0;
+        cumulativeVol = 0;
+        currentDay = day;
+      }
+    } else if (i % resetInterval === 0) {
       cumulativeTPV = 0;
       cumulativeVol = 0;
     }

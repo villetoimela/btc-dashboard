@@ -837,7 +837,8 @@ export function calculateShortTermScore(
 
   // --- 9. VWAP (weight 12) ---
   if (closes.length > 0 && candleVolumes.length > 0) {
-    const vwapValues = calcVwap(highs, lows, closes, candleVolumes);
+    const timestamps = binance.candles.map((c) => c.time);
+    const vwapValues = calcVwap(highs, lows, closes, candleVolumes, timestamps);
     const vwapVal = lastValid(vwapValues);
 
     if (!isNaN(vwapVal) && !isNaN(atrVal) && atrVal > 0) {
