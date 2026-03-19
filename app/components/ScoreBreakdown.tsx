@@ -11,20 +11,9 @@ interface ScoreBreakdownProps {
 }
 
 function ConsensusSummary({ indicators, consensus }: { indicators: IndicatorResult[]; consensus?: ConsensusData }) {
-  let bullish: number;
-  let bearish: number;
-  let neutral: number;
-
-  if (consensus) {
-    bullish = consensus.bullish;
-    bearish = consensus.bearish;
-    neutral = consensus.neutral;
-  } else {
-    bullish = indicators.filter((i) => i.signal === "bullish").length;
-    bearish = indicators.filter((i) => i.signal === "bearish").length;
-    neutral = indicators.filter((i) => i.signal === "neutral").length;
-  }
-
+  const bullish = consensus?.bullish ?? indicators.filter((i) => i.signal === "bullish").length;
+  const bearish = consensus?.bearish ?? indicators.filter((i) => i.signal === "bearish").length;
+  const neutral = consensus?.neutral ?? indicators.filter((i) => i.signal === "neutral").length;
   const count = indicators.length;
 
   return (
@@ -36,82 +25,58 @@ function ConsensusSummary({ indicators, consensus }: { indicators: IndicatorResu
   );
 }
 
-function SignalBadge({ signal }: { signal: "bullish" | "neutral" | "bearish" }) {
-  if (signal === "bullish") return <span className="text-[10px] font-semibold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded">BULL</span>;
-  if (signal === "bearish") return <span className="text-[10px] font-semibold text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">BEAR</span>;
-  return <span className="text-[10px] font-semibold text-gray-400 bg-gray-400/10 px-1.5 py-0.5 rounded">—</span>;
-}
-
 function IndicatorRow({ ind }: { ind: IndicatorResult }) {
   const [expanded, setExpanded] = useState(false);
 
-  const absScore = Math.abs(ind.score);
-  const barWidth = absScore * 50;
-  const isBullish = ind.score > 0;
-  const isBearish = ind.score < 0;
+  // Score is -1 to +1, map to 0-100 position
+  const position = ((ind.score + 1) / 2) * 100;
+  const clampedPos = Math.max(0, Math.min(100, position));
 
-  const barColor = isBullish
-    ? "#22c55e"
-    : isBearish
-      ? "#ef4444"
-      : "#6b7280";
+  const dotColor = ind.signal === "bullish"
+    ? "bg-green-400 shadow-green-400/40"
+    : ind.signal === "bearish"
+      ? "bg-red-400 shadow-red-400/40"
+      : "bg-gray-400 shadow-gray-400/40";
+
+  const signalColor = ind.signal === "bullish"
+    ? "text-green-400"
+    : ind.signal === "bearish"
+      ? "text-red-400"
+      : "text-gray-500";
 
   return (
     <div
-      className="group cursor-pointer hover:bg-[#1e2235] rounded-lg transition-colors"
+      className="cursor-pointer hover:bg-[#1e2235] rounded-lg transition-colors px-2 py-2"
       onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex items-center gap-3 py-2 px-2">
-        {/* Name + value */}
-        <div className="w-40 sm:w-48 flex-shrink-0">
-          <div className="text-sm text-gray-300 font-medium">{ind.name}</div>
-          <div className="text-xs text-gray-500">{String(ind.value)}</div>
-        </div>
-
-        {/* Center-aligned bar */}
-        <div className="flex-1 relative h-5 min-w-0">
-          <div className="absolute inset-0 bg-[#242836] rounded overflow-hidden">
-            {/* Center line */}
-            <div className="absolute top-0 left-1/2 w-px h-full bg-gray-600/40" />
-            {/* Bar */}
-            {isBullish ? (
-              <div
-                className="absolute top-1 bottom-1 rounded-r transition-all duration-700"
-                style={{
-                  left: "50%",
-                  width: `${barWidth}%`,
-                  backgroundColor: barColor,
-                  opacity: 0.7 + absScore * 0.3,
-                }}
-              />
-            ) : isBearish ? (
-              <div
-                className="absolute top-1 bottom-1 rounded-l transition-all duration-700"
-                style={{
-                  right: "50%",
-                  width: `${barWidth}%`,
-                  backgroundColor: barColor,
-                  opacity: 0.7 + absScore * 0.3,
-                }}
-              />
-            ) : null}
-          </div>
-        </div>
-
-        {/* Signal + score */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <SignalBadge signal={ind.signal} />
-          <span className="w-12 text-right text-xs font-mono" style={{ color: barColor }}>
-            {ind.score > 0 ? "+" : ""}{ind.score.toFixed(2)}
-          </span>
-        </div>
+      {/* Label row */}
+      <div className="flex justify-between items-center mb-1.5">
+        <span className="text-sm text-gray-300">{ind.name}</span>
+        <span className={`text-xs font-medium ${signalColor}`}>
+          {String(ind.value)}
+        </span>
       </div>
 
-      {/* Expandable description */}
+      {/* Range bar (same style as KeyLevels) */}
+      <div className="relative h-2 bg-[#242836] rounded-full overflow-hidden">
+        <div
+          className="absolute h-full rounded-full bg-gradient-to-r from-red-500/30 via-gray-500/20 to-green-500/30"
+          style={{ width: "100%" }}
+        />
+        {/* Center line */}
+        <div className="absolute top-0 left-1/2 w-px h-full bg-gray-600/60" />
+        {/* Position dot */}
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${dotColor} shadow-md transition-all duration-500`}
+          style={{ left: `calc(${clampedPos}% - 5px)` }}
+        />
+      </div>
+
+      {/* Expandable detail */}
       {expanded && (
-        <div className="text-xs text-gray-500 px-2 pb-2 pl-[10.5rem] sm:pl-[13rem]">
+        <div className="text-xs text-gray-500 mt-2">
           {ind.description}
-          <span className="text-gray-600 ml-1">(w: {ind.weight})</span>
+          <span className="text-gray-600 ml-1">(score: {ind.score > 0 ? "+" : ""}{ind.score.toFixed(2)}, weight: {ind.weight})</span>
         </div>
       )}
     </div>
@@ -140,7 +105,7 @@ export default function ScoreBreakdown({
 
       <ConsensusSummary indicators={indicators} consensus={consensus} />
 
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {indicators.map((ind) => (
           <IndicatorRow key={ind.name} ind={ind} />
         ))}

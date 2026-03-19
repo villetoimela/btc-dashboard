@@ -29,6 +29,7 @@ import ScoreBreakdown from "./components/ScoreBreakdown";
 import WhalePanel from "./components/WhalePanel";
 import MomentumStrip from "./components/MomentumStrip";
 import KeyLevels from "./components/KeyLevels";
+import TradeSignal from "./components/TradeSignal";
 import AlertBanner, {
   useNotificationPermission,
   type ToastMessage,
@@ -391,8 +392,6 @@ export default function Home() {
           recommendation={longTermRec}
           scoreLabel="Long Term"
           lastUpdate={lastUpdate}
-          notificationPermission={notifPerm}
-          onRequestNotifications={requestPermission}
         />
       ) : shortTermScore && shortTermRec ? (
         <TopBar
@@ -401,8 +400,6 @@ export default function Home() {
           recommendation={shortTermRec}
           scoreLabel="Short Term"
           lastUpdate={lastUpdate}
-          notificationPermission={notifPerm}
-          onRequestNotifications={requestPermission}
         />
       ) : (
         <div className="panel p-4 text-center text-gray-400">
@@ -447,6 +444,9 @@ export default function Home() {
             </div>
           )}
 
+          {/* Trade signal banner */}
+          <TradeSignal score={shortTermScore} currentPrice={market.price_usd} />
+
           {/* Momentum strip */}
           <MomentumStrip binanceData={binanceData} />
 
@@ -456,11 +456,11 @@ export default function Home() {
             <WhalePanel data={whaleData} />
           </div>
 
-          {/* Short-term score breakdown */}
+          {/* Short-term indicator details */}
           <ScoreBreakdown
             indicators={shortTermScore.indicators}
             total={shortTermScore.total}
-            title="Short Term Scores"
+            title="Indicator Details"
             consensus={shortTermScore.consensus}
           />
         </>
@@ -474,9 +474,16 @@ export default function Home() {
       <EventLog />
 
       {/* Footer */}
-      <div className="text-center text-xs text-gray-700 py-4">
-        Data: Binance, CoinGecko, Alternative.me, Mempool.space | Not financial
-        advice
+      <div className="text-center text-xs text-gray-700 py-4 space-y-2">
+        {notifPerm === "default" && (
+          <button
+            onClick={requestPermission}
+            className="text-xs bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-1.5 rounded-full transition-colors"
+          >
+            Enable price alerts
+          </button>
+        )}
+        <div>Data: Binance, CoinGecko, Alternative.me, Mempool.space | Not financial advice</div>
       </div>
 
       {/* Toast notifications */}

@@ -17,8 +17,6 @@ interface TopBarProps {
   recommendation: RecommendationStyle;
   scoreLabel: string;
   lastUpdate: Date | null;
-  notificationPermission?: "default" | "granted" | "denied";
-  onRequestNotifications?: () => void;
 }
 
 function formatPrice(n: number): string {
@@ -32,7 +30,7 @@ function ChangeTag({ value }: { value: number }) {
   const color =
     value > 0 ? "text-green-400" : value < 0 ? "text-red-400" : "text-gray-400";
   return (
-    <span className={`${color} text-sm font-medium`}>
+    <span className={`${color} text-xs sm:text-sm font-medium`}>
       {value > 0 ? "+" : ""}
       {value.toFixed(1)}%
     </span>
@@ -40,7 +38,6 @@ function ChangeTag({ value }: { value: number }) {
 }
 
 function getScoreGradientColor(score: number): string {
-  // Red (0) -> Yellow (50) -> Green (100)
   if (score <= 50) {
     const t = score / 50;
     const r = Math.round(239 + (234 - 239) * t);
@@ -84,7 +81,7 @@ function RelativeTime({ date, refreshTrigger }: { date: Date | null; refreshTrig
 
   return (
     <span className={`text-xs text-gray-600 transition-opacity ${pulse ? "animate-pulse-once" : ""}`}>
-      Updated {display}
+      {display}
     </span>
   );
 }
@@ -95,68 +92,65 @@ export default function TopBar({
   recommendation,
   scoreLabel,
   lastUpdate,
-  notificationPermission,
-  onRequestNotifications,
 }: TopBarProps) {
   return (
-    <div className="panel flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 md:gap-8">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm text-gray-400">Bitcoin</span>
+    <div className="panel">
+      <div className="flex items-center justify-between gap-3">
+        {/* Left: Price */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-xs text-gray-500">Bitcoin</span>
             <RelativeTime date={lastUpdate} refreshTrigger={lastUpdate?.getTime() ?? 0} />
           </div>
-          <div className="text-3xl md:text-4xl font-bold">
+          <div className="text-2xl sm:text-3xl md:text-4xl font-bold">
             ${formatPrice(market.price_usd)}
           </div>
-          <div className="text-sm text-gray-500">
+          <div className="text-xs text-gray-500">
             {"\u20AC"}{formatPrice(market.price_eur)}
           </div>
         </div>
 
-        <div className="flex gap-4 text-sm">
-          <div>
-            <span className="text-gray-500">24h </span>
-            <ChangeTag value={market.change_24h} />
+        {/* Right: Score + Recommendation */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <div className="text-right hidden sm:block">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wide">{scoreLabel}</div>
+            <div className="flex items-center justify-end gap-0.5">
+              <span
+                className="text-xl sm:text-2xl font-bold"
+                style={{ color: getScoreGradientColor(total) }}
+              >
+                {total}
+              </span>
+              <span className="text-xs text-gray-500">/100</span>
+            </div>
           </div>
-          <div>
-            <span className="text-gray-500">7d </span>
-            <ChangeTag value={market.change_7d} />
-          </div>
-          <div>
-            <span className="text-gray-500">30d </span>
-            <ChangeTag value={market.change_30d} />
+          <div className={`${recommendation.bg} px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-center`}>
+            <div className={`text-lg sm:text-xl font-bold ${recommendation.text}`}>{recommendation.label}</div>
+            <div className="text-[10px] sm:text-xs text-gray-400 leading-tight max-w-[160px]">{recommendation.description}</div>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 w-full md:w-auto">
-        <div className="text-right">
-          <div className="text-xs text-gray-500">{scoreLabel}</div>
-          <div className="flex items-center justify-end gap-1">
-            <span
-              className="text-2xl font-bold"
-              style={{ color: getScoreGradientColor(total) }}
-            >
-              {total}
-            </span>
-            <span className="text-sm text-gray-500">/100</span>
-          </div>
+      {/* Change tags row */}
+      <div className="flex gap-3 sm:gap-4 mt-2 pt-2 border-t border-[#2d3348]">
+        <div>
+          <span className="text-gray-500 text-xs">24h </span>
+          <ChangeTag value={market.change_24h} />
         </div>
-        <div className={`${recommendation.bg} px-4 py-2 rounded-xl text-center min-w-[110px] max-w-[220px]`}>
-          <div className={`text-xl font-bold ${recommendation.text}`}>{recommendation.label}</div>
-          <div className="text-xs text-gray-400 mt-0.5 leading-tight">{recommendation.description}</div>
+        <div>
+          <span className="text-gray-500 text-xs">7d </span>
+          <ChangeTag value={market.change_7d} />
+        </div>
+        <div>
+          <span className="text-gray-500 text-xs">30d </span>
+          <ChangeTag value={market.change_30d} />
+        </div>
+        {/* Mobile score */}
+        <div className="sm:hidden ml-auto">
+          <span className="text-xs text-gray-500">{scoreLabel} </span>
+          <span className="text-sm font-bold" style={{ color: getScoreGradientColor(total) }}>{total}/100</span>
         </div>
       </div>
-
-      {notificationPermission === "default" && onRequestNotifications && (
-        <button
-          onClick={onRequestNotifications}
-          className="text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 px-3 py-1 rounded-full transition-colors"
-        >
-          Enable alerts
-        </button>
-      )}
     </div>
   );
 }
