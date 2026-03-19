@@ -49,55 +49,85 @@ function makeFallbackRatio() {
   };
 }
 
-export async function GET() {
+// Try fetching long/short data from a specific Binance domain
+async function tryBinanceDomain(baseUrl: string): Promise<{
+  positionData: BinanceLongShortEntry[];
+  accountData: BinanceLongShortEntry[];
+  globalData: BinanceLongShortEntry[];
+} | null> {
   try {
-    // Try Binance futures API first (works when server is not in the US)
-    // Falls back to CoinGlass public data, then to neutral fallback values
-    let positionData: BinanceLongShortEntry[] | null = null;
-    let accountData: BinanceLongShortEntry[] | null = null;
-    let globalData: BinanceLongShortEntry[] | null = null;
+    const [positionRes, accountRes, globalRes] = await Promise.all([
+      fetchWithTimeout(
+        `${baseUrl}/futures/data/topLongShortPositionRatio?symbol=BTCUSDT&period=1h&limit=24`
+      ),
+      fetchWithTimeout(
+        `${baseUrl}/futures/data/topLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24`
+      ),
+      fetchWithTimeout(
+        `${baseUrl}/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24`
+      ),
+    ]);
 
-    // Attempt Binance futures API
-    try {
-      const [positionRes, accountRes, globalRes] = await Promise.all([
-        fetchWithTimeout(
-          "https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=BTCUSDT&period=1h&limit=24"
-        ),
-        fetchWithTimeout(
-          "https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24"
-        ),
-        fetchWithTimeout(
-          "https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=24"
-        ),
-      ]);
+    if (positionRes.ok && accountRes.ok && globalRes.ok) {
+      const positionData = await positionRes.json();
+      const accountData = await accountRes.json();
+      const globalData = await globalRes.json();
 
-      if (positionRes.ok && accountRes.ok && globalRes.ok) {
-        positionData = await positionRes.json();
-        accountData = await accountRes.json();
-        globalData = await globalRes.json();
-      } else {
-        const status = [positionRes.status, accountRes.status, globalRes.status];
-        console.warn(`Binance Futures API returned non-OK status: ${status.join(", ")}`);
+      // Validate that we got actual array data (not an error object)
+      if (Array.isArray(positionData) && positionData.length > 0 &&
+          Array.isArray(accountData) && accountData.length > 0 &&
+          Array.isArray(globalData) && globalData.length > 0) {
+        return { positionData, accountData, globalData };
       }
-    } catch (binanceError) {
-      const msg = binanceError instanceof Error ? binanceError.message : String(binanceError);
-      console.warn("Binance Futures API unavailable (likely geo-blocked):", msg);
+      console.warn(`${baseUrl}: response was not valid array data`);
+      return null;
     }
 
-    // If Binance futures data is available, use it
-    if (positionData && accountData && globalData) {
+    const status = [positionRes.status, accountRes.status, globalRes.status];
+    console.warn(`${baseUrl} returned non-OK status: ${status.join(", ")}`);
+    return null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`${baseUrl} unavailable: ${msg}`);
+    return null;
+  }
+}
+
+export async function GET() {
+  try {
+    // Try multiple Binance domains in order:
+    // 1. api.binance.com - main API domain, serves futures data endpoints without
+    //    the geo-block that affects fapi.binance.com (the trading domain)
+    // 2. fapi.binance.com - direct futures API, geo-blocked in the US
+    const domains = [
+      "https://api.binance.com",
+      "https://fapi.binance.com",
+    ];
+
+    let result: Awaited<ReturnType<typeof tryBinanceDomain>> = null;
+    let usedDomain = "";
+
+    for (const domain of domains) {
+      result = await tryBinanceDomain(domain);
+      if (result) {
+        usedDomain = domain;
+        break;
+      }
+    }
+
+    if (result) {
       return NextResponse.json({
-        topTraderPositionRatio: parseRatioData(positionData),
-        topTraderAccountRatio: parseRatioData(accountData),
-        globalAccountRatio: parseRatioData(globalData),
-        source: "binance",
+        topTraderPositionRatio: parseRatioData(result.positionData),
+        topTraderAccountRatio: parseRatioData(result.accountData),
+        globalAccountRatio: parseRatioData(result.globalData),
+        source: `binance (${usedDomain})`,
       }, {
-        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+        headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
       });
     }
 
     // Fallback: return neutral values so the UI doesn't break
-    console.warn("Using fallback whale data (Binance Futures API unavailable from this region)");
+    console.warn("Using fallback whale data (all Binance endpoints unavailable from this region)");
     return NextResponse.json({
       topTraderPositionRatio: makeFallbackRatio(),
       topTraderAccountRatio: makeFallbackRatio(),

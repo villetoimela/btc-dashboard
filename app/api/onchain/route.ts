@@ -68,15 +68,14 @@ export async function GET() {
     // Fees
     const avgFee = mempoolFees?.halfHourFee || 0;
 
-    // Active addresses - use a fallback estimate based on mempool tx count
-    const activeAddresses = mempoolTxCount * 2.5; // rough estimate
-    const activeAddressesChange = 0;
+    // Active addresses - rough estimate based on mempool tx count
+    const activeAddresses = mempoolTxCount * 2.5;
 
     return NextResponse.json({
       hashrate,
       hashrate_change_30d: hashrateChange30d,
       active_addresses: Math.round(activeAddresses),
-      active_addresses_change: activeAddressesChange,
+      active_addresses_change: null,
       mempool_size: mempoolSize,
       mempool_tx_count: mempoolTxCount,
       avg_fee_sat_vb: avgFee,
@@ -85,7 +84,7 @@ export async function GET() {
       blocks_until_halving: blocksUntilHalving,
       estimated_halving_date: halvingDate,
     }, {
-      headers: { "Cache-Control": "public, s-maxage=600, stale-while-revalidate=1200" },
+      headers: { "Cache-Control": "public, s-maxage=120, stale-while-revalidate=300" },
     });
   } catch (error) {
     console.error("Onchain API error:", error);

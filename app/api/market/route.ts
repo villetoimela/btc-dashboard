@@ -15,37 +15,63 @@ async function fetchWithTimeout(url: string, timeoutMs = 10000) {
   }
 }
 
-export async function GET() {
+// Try fetching klines + ticker from a Binance domain, returns null if it fails
+async function tryBinanceMarket(baseUrl: string): Promise<{
+  dailyKlines: unknown[][];
+  tickerData: Record<string, unknown>;
+} | null> {
   try {
-    // Fetch from Binance.US (avoids HTTP 451 geo-block on Netlify US servers)
-    // EUR price: convert USD via frankfurter.app since Binance.US has no BTCEUR pair
-    const [dailyKlinesRes, tickerRes, eurRateRes, globalRes] = await Promise.all([
-      fetchWithTimeout(
-        "https://api.binance.us/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=365"
-      ),
-      fetchWithTimeout(
-        "https://api.binance.us/api/v3/ticker/24hr?symbol=BTCUSDT"
-      ),
-      // Free forex rate API — failure is non-fatal, we'll use a fallback rate
-      fetchWithTimeout(
-        "https://api.frankfurter.app/latest?from=USD&to=EUR"
-      ).catch(() => null),
-      // CoinGecko only for BTC dominance and market cap — failure is non-fatal
-      fetchWithTimeout("https://api.coingecko.com/api/v3/global").catch(() => null),
+    const [dailyKlinesRes, tickerRes] = await Promise.all([
+      fetchWithTimeout(`${baseUrl}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=365`),
+      fetchWithTimeout(`${baseUrl}/api/v3/ticker/24hr?symbol=BTCUSDT`),
     ]);
 
     if (!dailyKlinesRes.ok || !tickerRes.ok) {
-      const errors = [];
-      if (!dailyKlinesRes.ok) errors.push(`klines: ${dailyKlinesRes.status} ${await dailyKlinesRes.text().catch(() => "")}`);
-      if (!tickerRes.ok) errors.push(`ticker: ${tickerRes.status} ${await tickerRes.text().catch(() => "")}`);
-      throw new Error(`Binance API error: ${errors.join("; ")}`);
+      const status = [dailyKlinesRes.status, tickerRes.status];
+      console.warn(`${baseUrl} returned non-OK: ${status.join(", ")}`);
+      return null;
     }
 
-    const dailyKlines: unknown[][] = await dailyKlinesRes.json();
+    const dailyKlines = await dailyKlinesRes.json();
     const tickerData = await tickerRes.json();
 
+    if (!Array.isArray(dailyKlines) || dailyKlines.length === 0) {
+      console.warn(`${baseUrl}: klines response was not a valid array`);
+      return null;
+    }
+
+    return { dailyKlines, tickerData };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`${baseUrl} failed: ${msg}`);
+    return null;
+  }
+}
+
+export async function GET() {
+  try {
+    // Try Binance.US first (avoids HTTP 451 geo-block on Netlify US servers),
+    // fall back to api.binance.com if .US is down
+    const binanceResult =
+      await tryBinanceMarket("https://api.binance.us") ??
+      await tryBinanceMarket("https://api.binance.com");
+
+    if (!binanceResult) {
+      throw new Error("All Binance endpoints failed for market data");
+    }
+
+    const { dailyKlines, tickerData } = binanceResult;
+
+    // EUR price: convert USD via frankfurter.app since Binance.US has no BTCEUR pair
+    const [eurRateRes, globalRes] = await Promise.all([
+      fetchWithTimeout(
+        "https://api.frankfurter.app/latest?from=USD&to=EUR"
+      ).catch(() => null),
+      fetchWithTimeout("https://api.coingecko.com/api/v3/global").catch(() => null),
+    ]);
+
     // Parse Binance data
-    const priceUsd = parseFloat(tickerData.lastPrice);
+    const priceUsd = parseFloat(String(tickerData.lastPrice));
 
     // Calculate EUR price from USD/EUR exchange rate
     let usdToEur = 0.92; // reasonable fallback rate
@@ -60,8 +86,8 @@ export async function GET() {
       console.warn("EUR rate fetch failed, using fallback rate");
     }
     const priceEur = priceUsd * usdToEur;
-    const change24h = parseFloat(tickerData.priceChangePercent) || 0;
-    const volume24h = parseFloat(tickerData.quoteVolume) || 0; // Quote volume is already in USD
+    const change24h = parseFloat(String(tickerData.priceChangePercent)) || 0;
+    const volume24h = parseFloat(String(tickerData.quoteVolume)) || 0; // Quote volume is already in USD
 
     // Parse daily klines into history arrays
     // Kline format: [openTime, open, high, low, close, volume, closeTime, quoteAssetVolume, numberOfTrades, takerBuyBaseVol, takerBuyQuoteVol, ignore]
@@ -135,7 +161,7 @@ export async function GET() {
       volumes_history: volumesHistory,
       candles_history: candlesHistory,
     }, {
-      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
+      headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -15,26 +15,52 @@ async function fetchWithTimeout(url: string, timeoutMs = 10000) {
   }
 }
 
-export async function GET() {
+// Try fetching hourly klines + ticker from a Binance domain
+async function tryBinanceHourly(baseUrl: string): Promise<{
+  klinesData: unknown[][];
+  tickerData: Record<string, unknown>;
+} | null> {
   try {
     const [klinesRes, tickerRes] = await Promise.all([
-      fetchWithTimeout(
-        "https://api.binance.us/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=168"
-      ),
-      fetchWithTimeout(
-        "https://api.binance.us/api/v3/ticker/24hr?symbol=BTCUSDT"
-      ),
+      fetchWithTimeout(`${baseUrl}/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=168`),
+      fetchWithTimeout(`${baseUrl}/api/v3/ticker/24hr?symbol=BTCUSDT`),
     ]);
 
     if (!klinesRes.ok || !tickerRes.ok) {
-      const errors = [];
-      if (!klinesRes.ok) errors.push(`klines: ${klinesRes.status} ${await klinesRes.text().catch(() => "")}`);
-      if (!tickerRes.ok) errors.push(`ticker: ${tickerRes.status} ${await tickerRes.text().catch(() => "")}`);
-      throw new Error(`Binance API error: ${errors.join("; ")}`);
+      const status = [klinesRes.status, tickerRes.status];
+      console.warn(`${baseUrl} returned non-OK: ${status.join(", ")}`);
+      return null;
     }
 
-    const klinesData: unknown[][] = await klinesRes.json();
+    const klinesData = await klinesRes.json();
     const tickerData = await tickerRes.json();
+
+    if (!Array.isArray(klinesData) || klinesData.length === 0) {
+      console.warn(`${baseUrl}: klines response was not a valid array`);
+      return null;
+    }
+
+    return { klinesData, tickerData };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`${baseUrl} failed: ${msg}`);
+    return null;
+  }
+}
+
+export async function GET() {
+  try {
+    // Try Binance.US first (avoids HTTP 451 geo-block on Netlify US servers),
+    // fall back to api.binance.com if .US is down
+    const binanceResult =
+      await tryBinanceHourly("https://api.binance.us") ??
+      await tryBinanceHourly("https://api.binance.com");
+
+    if (!binanceResult) {
+      throw new Error("All Binance endpoints failed for hourly data");
+    }
+
+    const { klinesData, tickerData } = binanceResult;
 
     // Parse klines: [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBaseVol, takerBuyQuoteVol, ignore]
     const candles = klinesData.map((k) => ({
@@ -57,8 +83,8 @@ export async function GET() {
     const change_4h = price4hAgo > 0 ? ((currentPrice - price4hAgo) / price4hAgo) * 100 : 0;
 
     // 24h change and volume from ticker
-    const change_24h = parseFloat(tickerData.priceChangePercent) || 0;
-    const volume_24h = parseFloat(tickerData.quoteVolume) || 0;
+    const change_24h = parseFloat(String(tickerData.priceChangePercent)) || 0;
+    const volume_24h = parseFloat(String(tickerData.quoteVolume)) || 0;
 
     return NextResponse.json({
       candles,
@@ -68,7 +94,7 @@ export async function GET() {
       change_24h,
       volume_24h,
     }, {
-      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
+      headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

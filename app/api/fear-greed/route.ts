@@ -24,7 +24,7 @@ export async function GET() {
       value_classification: current.value_classification,
       history: history.reverse(), // oldest first
     }, {
-      headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200" },
+      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
     });
   } catch (error) {
     console.error("Fear & Greed API error:", error);

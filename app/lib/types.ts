@@ -22,7 +22,7 @@ export interface OnchainData {
   hashrate: number;
   hashrate_change_30d: number;
   active_addresses: number;
-  active_addresses_change: number;
+  active_addresses_change: number | null;
   mempool_size: number;
   mempool_tx_count: number;
   avg_fee_sat_vb: number;
