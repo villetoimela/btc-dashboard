@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import type { MarketData } from "../lib/types";
-import ScoreSparkline, { useScoreTrend } from "./ScoreSparkline";
-import SignalStrength from "./SignalStrength";
 
 interface RecommendationStyle {
   label: string;
@@ -100,8 +98,6 @@ export default function TopBar({
   notificationPermission,
   onRequestNotifications,
 }: TopBarProps) {
-  const trend = useScoreTrend(total);
-
   return (
     <div className="panel flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 md:gap-8">
@@ -109,19 +105,11 @@ export default function TopBar({
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm text-gray-400">Bitcoin</span>
             <RelativeTime date={lastUpdate} refreshTrigger={lastUpdate?.getTime() ?? 0} />
-            {notificationPermission === "default" && onRequestNotifications && (
-              <button
-                onClick={onRequestNotifications}
-                className="text-[10px] bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 px-2 py-0.5 rounded-full transition-colors"
-              >
-                Enable alerts
-              </button>
-            )}
           </div>
           <div className="text-3xl md:text-4xl font-bold">
             ${formatPrice(market.price_usd)}
           </div>
-          <div className="text-lg text-gray-400">
+          <div className="text-sm text-gray-500">
             {"\u20AC"}{formatPrice(market.price_eur)}
           </div>
         </div>
@@ -153,22 +141,22 @@ export default function TopBar({
               {total}
             </span>
             <span className="text-sm text-gray-500">/100</span>
-            {trend && (
-              <span className="text-lg font-bold" style={{ color: trend.color }}>
-                {trend.arrow}
-              </span>
-            )}
-            <ScoreSparkline score={total} />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className={`${recommendation.bg} px-4 py-2 rounded-xl text-center min-w-[110px] max-w-[220px]`}>
-            <div className={`text-xl font-bold ${recommendation.text}`}>{recommendation.label}</div>
-            <div className="text-[10px] text-gray-400 mt-0.5 leading-tight">{recommendation.description}</div>
-          </div>
-          <SignalStrength score={total} color={recommendation.color} />
+        <div className={`${recommendation.bg} px-4 py-2 rounded-xl text-center min-w-[110px] max-w-[220px]`}>
+          <div className={`text-xl font-bold ${recommendation.text}`}>{recommendation.label}</div>
+          <div className="text-xs text-gray-400 mt-0.5 leading-tight">{recommendation.description}</div>
         </div>
       </div>
+
+      {notificationPermission === "default" && onRequestNotifications && (
+        <button
+          onClick={onRequestNotifications}
+          className="text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 px-3 py-1 rounded-full transition-colors"
+        >
+          Enable alerts
+        </button>
+      )}
     </div>
   );
 }

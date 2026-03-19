@@ -55,7 +55,7 @@ export default function KeyLevels({ levels, currentPrice }: KeyLevelsProps) {
   if (!levels) {
     return (
       <div className="panel">
-        <h3 className="text-sm font-semibold text-gray-400 mb-2">Key Levels</h3>
+        <h3 className="text-lg font-semibold mb-3">Key Levels</h3>
         <p className="text-xs text-gray-600">Loading...</p>
       </div>
     );
@@ -65,7 +65,7 @@ export default function KeyLevels({ levels, currentPrice }: KeyLevelsProps) {
 
   return (
     <div className="panel space-y-3">
-      <h3 className="text-sm font-semibold text-gray-400">Key Levels</h3>
+      <h3 className="text-lg font-semibold">Key Levels</h3>
 
       <RangeBar low={levels.low_24h} high={levels.high_24h} current={price} label="24h Range" />
       <RangeBar low={levels.low_7d} high={levels.high_7d} current={price} label="7d Range" />

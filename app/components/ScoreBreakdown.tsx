@@ -28,23 +28,25 @@ function ConsensusSummary({ indicators, consensus }: { indicators: IndicatorResu
   const count = indicators.length;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mb-4 pb-3 border-b border-[#2d3348]">
-      <span className="text-green-400 font-semibold">{bullish}/{count} Bullish</span>
-      <span className="text-gray-600">|</span>
-      <span className="text-red-400 font-semibold">{bearish}/{count} Bearish</span>
-      <span className="text-gray-600">|</span>
-      <span className="text-gray-400 font-semibold">{neutral}/{count} Neutral</span>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mb-4 pb-3 border-b border-[#2d3348]">
+      <span className="text-green-400 font-medium">{bullish}/{count} Bullish</span>
+      <span className="text-red-400 font-medium">{bearish}/{count} Bearish</span>
+      <span className="text-gray-500 font-medium">{neutral}/{count} Neutral</span>
     </div>
   );
+}
+
+function SignalBadge({ signal }: { signal: "bullish" | "neutral" | "bearish" }) {
+  if (signal === "bullish") return <span className="text-[10px] font-semibold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded">BULL</span>;
+  if (signal === "bearish") return <span className="text-[10px] font-semibold text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">BEAR</span>;
+  return <span className="text-[10px] font-semibold text-gray-400 bg-gray-400/10 px-1.5 py-0.5 rounded">—</span>;
 }
 
 function IndicatorRow({ ind }: { ind: IndicatorResult }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Center-aligned bar: score is -1 to +1
-  // Bullish (positive) extends right, bearish (negative) extends left
   const absScore = Math.abs(ind.score);
-  const barWidth = absScore * 50; // Max 50% of container
+  const barWidth = absScore * 50;
   const isBullish = ind.score > 0;
   const isBearish = ind.score < 0;
 
@@ -56,77 +58,62 @@ function IndicatorRow({ ind }: { ind: IndicatorResult }) {
 
   return (
     <div
-      className="group cursor-pointer hover:bg-[#1e2235] rounded-lg transition-colors -mx-1 px-1"
+      className="group cursor-pointer hover:bg-[#1e2235] rounded-lg transition-colors"
       onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex items-center gap-2 sm:gap-3 py-1.5">
-        <div className="w-24 sm:w-36 text-xs text-gray-400 truncate flex-shrink-0 flex items-center gap-1">
-          <span
-            className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              ind.signal === "bullish"
-                ? "bg-green-400"
-                : ind.signal === "bearish"
-                  ? "bg-red-400"
-                  : "bg-yellow-400"
-            }`}
-          />
-          {ind.name}
+      <div className="flex items-center gap-3 py-2 px-2">
+        {/* Name + value */}
+        <div className="w-40 sm:w-48 flex-shrink-0">
+          <div className="text-sm text-gray-300 font-medium">{ind.name}</div>
+          <div className="text-xs text-gray-500">{String(ind.value)}</div>
         </div>
 
         {/* Center-aligned bar */}
-        <div className="flex-1 relative h-4 min-w-0">
-          <div className="absolute inset-0 bg-[#242836] rounded-full overflow-hidden">
+        <div className="flex-1 relative h-5 min-w-0">
+          <div className="absolute inset-0 bg-[#242836] rounded overflow-hidden">
             {/* Center line */}
-            <div className="absolute top-0 left-1/2 w-px h-full bg-gray-600/50" />
+            <div className="absolute top-0 left-1/2 w-px h-full bg-gray-600/40" />
             {/* Bar */}
             {isBullish ? (
               <div
-                className="absolute top-0.5 bottom-0.5 rounded-r-full transition-all duration-700"
+                className="absolute top-1 bottom-1 rounded-r transition-all duration-700"
                 style={{
                   left: "50%",
                   width: `${barWidth}%`,
                   backgroundColor: barColor,
+                  opacity: 0.7 + absScore * 0.3,
                 }}
               />
             ) : isBearish ? (
               <div
-                className="absolute top-0.5 bottom-0.5 rounded-l-full transition-all duration-700"
+                className="absolute top-1 bottom-1 rounded-l transition-all duration-700"
                 style={{
                   right: "50%",
                   width: `${barWidth}%`,
                   backgroundColor: barColor,
+                  opacity: 0.7 + absScore * 0.3,
                 }}
               />
-            ) : (
-              <div
-                className="absolute top-1 bottom-1 bg-gray-600"
-                style={{
-                  left: "calc(50% - 1px)",
-                  width: "2px",
-                }}
-              />
-            )}
+            ) : null}
           </div>
         </div>
 
-        <div className="w-12 text-right text-xs font-mono flex-shrink-0" style={{ color: barColor }}>
-          {ind.score > 0 ? "+" : ""}{ind.score.toFixed(2)}
+        {/* Signal + score */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <SignalBadge signal={ind.signal} />
+          <span className="w-12 text-right text-xs font-mono" style={{ color: barColor }}>
+            {ind.score > 0 ? "+" : ""}{ind.score.toFixed(2)}
+          </span>
         </div>
       </div>
 
       {/* Expandable description */}
-      <div
-        className={`overflow-hidden transition-all duration-300 ${
-          expanded ? "max-h-20 opacity-100 pb-2" : "max-h-0 opacity-0"
-        }`}
-      >
-        <div className="text-xs text-gray-500 pl-6 sm:pl-[9.5rem]">
+      {expanded && (
+        <div className="text-xs text-gray-500 px-2 pb-2 pl-[10.5rem] sm:pl-[13rem]">
           {ind.description}
-          {ind.value != null && (
-            <span className="ml-2 text-gray-600">({String(ind.value)})</span>
-          )}
+          <span className="text-gray-600 ml-1">(w: {ind.weight})</span>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -139,19 +126,24 @@ export default function ScoreBreakdown({
 }: ScoreBreakdownProps) {
   return (
     <div className="panel">
-      <h2 className="text-lg font-semibold mb-3">{title}</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <span
+          className="text-lg font-bold"
+          style={{
+            color: total >= 60 ? "#22c55e" : total >= 40 ? "#eab308" : "#ef4444",
+          }}
+        >
+          {total}/100
+        </span>
+      </div>
 
       <ConsensusSummary indicators={indicators} consensus={consensus} />
 
-      <div className="space-y-0">
+      <div className="space-y-0.5">
         {indicators.map((ind) => (
           <IndicatorRow key={ind.name} ind={ind} />
         ))}
-      </div>
-
-      <div className="mt-3 pt-3 border-t border-[#2d3348] flex items-center justify-between">
-        <span className="text-sm text-gray-400">Total</span>
-        <span className="text-lg font-bold">{total}/100</span>
       </div>
     </div>
   );

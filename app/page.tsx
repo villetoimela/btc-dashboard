@@ -421,7 +421,7 @@ export default function Home() {
       {activeTab === "invest" ? (
         <>
           {/* Long-term panels grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <TechnicalPanel score={score} />
             <FearGreedPanel fearGreed={fearGreed} market={market} />
             <CyclePanel onchain={onchain} />
@@ -450,8 +450,11 @@ export default function Home() {
           {/* Momentum strip */}
           <MomentumStrip binanceData={binanceData} />
 
-          {/* Key levels */}
-          <KeyLevels levels={levelsData} currentPrice={market.price_usd} />
+          {/* Key levels + Whale panel grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <KeyLevels levels={levelsData} currentPrice={market.price_usd} />
+            <WhalePanel data={whaleData} />
+          </div>
 
           {/* Short-term score breakdown */}
           <ScoreBreakdown
@@ -460,9 +463,6 @@ export default function Home() {
             title="Short Term Scores"
             consensus={shortTermScore.consensus}
           />
-
-          {/* Whale panel */}
-          <WhalePanel data={whaleData} />
         </>
       ) : (
         <div className="panel p-8 text-center text-gray-400">
