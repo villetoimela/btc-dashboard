@@ -58,7 +58,7 @@ function IndicatorRow({ ind }: { ind: IndicatorResult }) {
       </div>
 
       {/* Range bar (same style as KeyLevels) */}
-      <div className="relative h-2 bg-[#242836] rounded-full overflow-hidden">
+      <div className="relative h-4 bg-[#242836] rounded-full overflow-hidden">
         <div
           className="absolute h-full rounded-full bg-gradient-to-r from-red-500/30 via-gray-500/20 to-green-500/30"
           style={{ width: "100%" }}
@@ -67,7 +67,7 @@ function IndicatorRow({ ind }: { ind: IndicatorResult }) {
         <div className="absolute top-0 left-1/2 w-px h-full bg-gray-600/60" />
         {/* Position dot */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${dotColor} shadow-md transition-all duration-500`}
+          className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full ${dotColor} shadow-md transition-all duration-500 border-2 border-[#1a1d29]`}
           style={{ left: `calc(${clampedPos}% - 5px)` }}
         />
       </div>
