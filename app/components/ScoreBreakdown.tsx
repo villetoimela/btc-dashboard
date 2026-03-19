@@ -67,7 +67,7 @@ function IndicatorRow({ ind }: { ind: IndicatorResult }) {
         <div className="absolute top-0 left-1/2 w-px h-full bg-gray-600/60" />
         {/* Position dot */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full ${dotColor} shadow-md transition-all duration-500 border-2 border-[#1a1d29]`}
+          className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full ${dotColor} shadow-md transition-all duration-500`}
           style={{ left: `calc(${clampedPos}% - 5px)` }}
         />
       </div>
