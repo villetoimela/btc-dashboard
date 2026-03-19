@@ -82,26 +82,30 @@ export default function CyclePanel({ onchain }: { onchain: OnchainData }) {
               <div className="w-2 h-2 rounded-full bg-blue-500" />
               <span className="text-gray-400 flex-1">2016-2020 cycle</span>
               <span className="text-gray-300">
-                {daysSinceHalving <= 365
-                  ? "Accumulation"
-                  : daysSinceHalving <= 540
+                {daysSinceHalving <= 180
+                  ? "Slow accumulation"
+                  : daysSinceHalving <= 365
                     ? "Early rally"
-                    : daysSinceHalving <= 730
-                      ? "Bull run"
-                      : "Bear market"}
+                    : daysSinceHalving <= 526
+                      ? "Bull run \u2192 ATH"
+                      : daysSinceHalving <= 730
+                        ? "Bear market"
+                        : "Recovery"}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-purple-500" />
               <span className="text-gray-400 flex-1">2020-2024 cycle</span>
               <span className="text-gray-300">
-                {daysSinceHalving <= 365
+                {daysSinceHalving <= 180
                   ? "Accumulation"
-                  : daysSinceHalving <= 540
-                    ? "Early rally"
-                    : daysSinceHalving <= 730
-                      ? "Bull run"
-                      : "Bear market"}
+                  : daysSinceHalving <= 365
+                    ? "Bull run phase 1"
+                    : daysSinceHalving <= 546
+                      ? "Bull run \u2192 ATH"
+                      : daysSinceHalving <= 730
+                        ? "Bear market"
+                        : "Recovery \u2192 Halving"}
               </span>
             </div>
           </div>

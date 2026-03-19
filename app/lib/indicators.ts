@@ -48,6 +48,9 @@ export function rsi(data: number[], period: number = 14): number[] {
   const gains: number[] = [];
   const losses: number[] = [];
 
+  let prevAvgGain = 0;
+  let prevAvgLoss = 0;
+
   for (let i = 0; i < data.length; i++) {
     if (i === 0) {
       result.push(NaN);
@@ -67,16 +70,17 @@ export function rsi(data: number[], period: number = 14): number[] {
     let avgLoss: number;
 
     if (i === period) {
+      // First RSI value: simple average of gains/losses
       avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
       avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
     } else {
-      const prevRsiIndex = i - 1;
-      // Use Wilder's smoothing
-      const prevAvgGain = gains.slice(prevRsiIndex - period, prevRsiIndex).reduce((a, b) => a + b, 0) / period;
-      const prevAvgLoss = losses.slice(prevRsiIndex - period, prevRsiIndex).reduce((a, b) => a + b, 0) / period;
+      // Wilder's smoothing: carry forward previous smoothed values
       avgGain = (prevAvgGain * (period - 1) + gains[gains.length - 1]) / period;
       avgLoss = (prevAvgLoss * (period - 1) + losses[losses.length - 1]) / period;
     }
+
+    prevAvgGain = avgGain;
+    prevAvgLoss = avgLoss;
 
     if (avgLoss === 0) {
       result.push(100);

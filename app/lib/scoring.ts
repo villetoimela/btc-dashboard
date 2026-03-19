@@ -210,9 +210,12 @@ export function calculateScore(
 
   // --- 8. Volume (weight 8) ---
   const volumes = market.volumes_history.map(([, v]) => v);
-  const recentVol = volumes.slice(-1)[0] || 0;
+  // Use yesterday's complete candle instead of today's potentially incomplete one
+  const recentVol = volumes.length >= 2 ? volumes[volumes.length - 2] : (volumes.slice(-1)[0] || 0);
+  const completedVolumes = volumes.length >= 2 ? volumes.slice(0, -1) : volumes;
+  const avgVol30Slice = completedVolumes.slice(-30);
   const avgVol30 =
-    volumes.slice(-30).reduce((a, b) => a + b, 0) / Math.min(30, volumes.length);
+    avgVol30Slice.length > 0 ? avgVol30Slice.reduce((a, b) => a + b, 0) / avgVol30Slice.length : 0;
   const volRatio = avgVol30 > 0 ? recentVol / avgVol30 : 1;
   const priceUp = market.change_24h > 0;
   let volScore = 0;
@@ -432,8 +435,10 @@ export function calculateShortTermScore(
 
   // --- 5. Volume spike on 1h data (weight 15) ---
   const volumes = binance.candles.map((c) => c.volume);
-  const currentVol = volumes[volumes.length - 1] || 0;
-  const avgVol = volumes.slice(0, -1).reduce((a, b) => a + b, 0) / Math.max(1, volumes.length - 1);
+  // Use last complete candle instead of current incomplete one
+  const currentVol = volumes.length >= 2 ? volumes[volumes.length - 2] : (volumes[volumes.length - 1] || 0);
+  const avgVolSlice = volumes.length >= 3 ? volumes.slice(0, -2) : volumes.slice(0, -1);
+  const avgVol = avgVolSlice.length > 0 ? avgVolSlice.reduce((a, b) => a + b, 0) / avgVolSlice.length : 0;
   const volSpike = avgVol > 0 ? currentVol / avgVol : 1;
   const priceUp = change_1h > 0;
   let volScore = 0;
