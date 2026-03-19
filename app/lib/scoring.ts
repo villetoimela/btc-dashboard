@@ -123,15 +123,12 @@ export function calculateScore(
     rsiSignal = "bearish";
   }
 
-  // RSI Divergence bonus
+  // RSI Divergence bonus — additive to ensure correct direction
   const divergence = detectRsiDivergence(prices, rsiValues);
   if (divergence === 'bullish_divergence') {
-    rsiScore = Math.min(rsiScore * 1.5, 1.0);
-    if (rsiScore > 0) rsiScore = Math.min(rsiScore, 1.0);
-    else rsiScore = Math.max(rsiScore * 1.5, -1.0);
+    rsiScore = Math.min(rsiScore + 0.5, 1.0);  // Boost toward bullish
   } else if (divergence === 'bearish_divergence') {
-    if (rsiScore < 0) rsiScore = Math.max(rsiScore * 1.5, -1.0);
-    else rsiScore = Math.min(rsiScore * 1.5, 1.0);
+    rsiScore = Math.max(rsiScore - 0.5, -1.0);  // Push toward bearish
   }
   rsiScore = clamp(rsiScore, -1, 1);
 
@@ -322,16 +319,12 @@ export function calculateScore(
   const priceUp = market.change_24h > 0;
   let volScore = 0;
   let volSignal: "bullish" | "neutral" | "bearish" = "neutral";
-  if (volRatio > 1.5 && priceUp) {
-    volScore = 0.7;
-    volSignal = "bullish";
-  } else if (volRatio > 1.5 && !priceUp) {
-    volScore = -0.7;
-    volSignal = "bearish";
+  if (volRatio > 1) {
+    volScore = Math.min((volRatio - 1) * 0.7, 1.0) * (priceUp ? 1 : -1);
   } else {
-    volScore = 0;
-    volSignal = "neutral";
+    volScore = 0; // Below average volume = no signal
   }
+  volSignal = volScore > 0.2 ? "bullish" : volScore < -0.2 ? "bearish" : "neutral";
   indicators.push({
     name: "Volume",
     value: `${volRatio.toFixed(2)}x avg`,
@@ -343,16 +336,19 @@ export function calculateScore(
         ? priceUp
           ? "High volume with uptrend - bullish"
           : "High volume with downtrend - bearish"
-        : "Normal volume",
+        : volRatio > 1
+          ? "Slightly above average volume"
+          : "Normal volume",
   });
 
   // --- 9. Hashrate trend (weight 5) ---
   const hrChange = onchain.hashrate_change_30d;
+  const hrScore = clamp(hrChange / 10, -1, 1) * 0.5;
   indicators.push({
     name: "Hashrate Trend",
     value: `${hrChange > 0 ? "+" : ""}${hrChange.toFixed(1)}%`,
-    signal: hrChange > 0 ? "bullish" : "bearish",
-    score: hrChange > 0 ? 0.5 : -0.5,
+    signal: hrScore > 0.1 ? "bullish" : hrScore < -0.1 ? "bearish" : "neutral",
+    score: hrScore,
     weight: 5,
     description: hrChange > 0 ? "Hashrate growing - network strengthening" : "Hashrate declining",
   });
@@ -412,20 +408,20 @@ export function calculateScore(
   // --- 12. Funding Rate (weight 8) — contrarian indicator ---
   if (fundingRate) {
     const avgRate7d = fundingRate.avg_rate_7d;
-    // avg_rate_7d > 0.05% = bearish (overleveraged longs), < -0.02% = bullish
-    // Scale linearly between
+    // avg_rate_7d > 0.0005 (0.05%) = bearish (overleveraged longs), < -0.0002 (-0.02%) = bullish
+    // Binance funding rates are raw decimals: 0.0001 = 0.01%
     let frScore = 0;
     let frSignal: "bullish" | "neutral" | "bearish" = "neutral";
-    if (avgRate7d >= 0.05) {
+    if (avgRate7d >= 0.0005) {
       frScore = -0.7;
       frSignal = "bearish";
-    } else if (avgRate7d <= -0.02) {
+    } else if (avgRate7d <= -0.0002) {
       frScore = 0.7;
       frSignal = "bullish";
     } else {
-      // Linear interpolation between -0.02 and 0.05
-      // At -0.02: score = 0.7, at 0.05: score = -0.7
-      frScore = 0.7 - ((avgRate7d - (-0.02)) / (0.05 - (-0.02))) * 1.4;
+      // Linear interpolation between -0.0002 and 0.0005
+      // At -0.0002: score = 0.7, at 0.0005: score = -0.7
+      frScore = 0.7 - ((avgRate7d - (-0.0002)) / (0.0005 - (-0.0002))) * 1.4;
       frSignal = frScore > 0.1 ? "bullish" : frScore < -0.1 ? "bearish" : "neutral";
     }
     frScore = clamp(frScore, -1, 1);
@@ -437,9 +433,9 @@ export function calculateScore(
       score: frScore,
       weight: 8,
       description:
-        avgRate7d >= 0.05
+        avgRate7d >= 0.0005
           ? "High funding - overleveraged longs - bearish"
-          : avgRate7d <= -0.02
+          : avgRate7d <= -0.0002
             ? "Negative funding - shorts paying - bullish"
             : "Neutral funding rate",
     });
@@ -686,9 +682,10 @@ export function calculateShortTermScore(
   const priceUp = change_1h > 0;
   let volScore = 0;
   let volSignal: "bullish" | "neutral" | "bearish" = "neutral";
-  if (volSpike > 1.5 && priceUp) { volScore = 0.8; volSignal = "bullish"; }
-  else if (volSpike > 1.5 && !priceUp) { volScore = -0.8; volSignal = "bearish"; }
-  else if (volSpike < 0.5) { volScore = 0; volSignal = "neutral"; }
+  if (volSpike > 1) {
+    volScore = Math.min((volSpike - 1) * 0.8, 1.0) * (priceUp ? 1 : -1);
+  }
+  volSignal = volScore > 0.2 ? "bullish" : volScore < -0.2 ? "bearish" : "neutral";
   indicators.push({
     name: "Volume Spike 1h",
     value: `${volSpike.toFixed(1)}x`,
@@ -697,6 +694,43 @@ export function calculateShortTermScore(
     weight: 12,
     description: volSpike > 1.5 ? (priceUp ? "High volume + uptrend" : "High volume + downtrend — panic?") : "Normal volume",
   });
+
+  // --- 5b. Taker Buy/Sell Ratio (weight 8) ---
+  const takerBuyVols = binance.candles.map((c) => c.takerBuyVolume);
+  if (takerBuyVols.length >= 6 && takerBuyVols[takerBuyVols.length - 1] != null) {
+    const last6TakerBuy = takerBuyVols.slice(-6).reduce((a: number, b) => a + (b ?? 0), 0 as number);
+    const last6Vol = candleVolumes.slice(-6).reduce((a, b) => a + b, 0);
+    if (last6Vol > 0) {
+      const takerBuyRatio = last6TakerBuy / last6Vol;
+      let tbScore = 0;
+      let tbSignal: "bullish" | "neutral" | "bearish" = "neutral";
+      if (takerBuyRatio > 0.55) {
+        tbScore = 0.6;
+        tbSignal = "bullish";
+      } else if (takerBuyRatio < 0.45) {
+        tbScore = -0.6;
+        tbSignal = "bearish";
+      } else {
+        // Linear interpolation between 0.45 and 0.55
+        tbScore = ((takerBuyRatio - 0.45) / (0.55 - 0.45)) * 1.2 - 0.6;
+        tbSignal = tbScore > 0.1 ? "bullish" : tbScore < -0.1 ? "bearish" : "neutral";
+      }
+      tbScore = clamp(tbScore, -1, 1);
+      indicators.push({
+        name: "Taker Buy/Sell",
+        value: `${(takerBuyRatio * 100).toFixed(1)}% buy`,
+        signal: tbSignal,
+        score: tbScore,
+        weight: 8,
+        description:
+          takerBuyRatio > 0.55
+            ? "Buyers aggressive — taker buy ratio elevated"
+            : takerBuyRatio < 0.45
+              ? "Sellers aggressive — taker sell ratio elevated"
+              : "Balanced taker activity",
+      });
+    }
+  }
 
   // --- 6. Whale Long/Short Ratio (weight 15) ---
   if (whaleData) {
@@ -773,15 +807,15 @@ export function calculateShortTermScore(
     let frScore = 0;
     let frSignal: "bullish" | "neutral" | "bearish" = "neutral";
 
-    if (currentRate >= 0.05) {
+    if (currentRate >= 0.0005) {
       frScore = -0.7;
       frSignal = "bearish";
-    } else if (currentRate <= -0.02) {
+    } else if (currentRate <= -0.0002) {
       frScore = 0.7;
       frSignal = "bullish";
     } else {
-      // Linear interpolation between -0.02 and 0.05
-      frScore = 0.7 - ((currentRate - (-0.02)) / (0.05 - (-0.02))) * 1.4;
+      // Linear interpolation between -0.0002 and 0.0005
+      frScore = 0.7 - ((currentRate - (-0.0002)) / (0.0005 - (-0.0002))) * 1.4;
       frSignal = frScore > 0.1 ? "bullish" : frScore < -0.1 ? "bearish" : "neutral";
     }
     frScore = clamp(frScore, -1, 1);
@@ -793,9 +827,9 @@ export function calculateShortTermScore(
       score: frScore,
       weight: 10,
       description:
-        currentRate >= 0.05
+        currentRate >= 0.0005
           ? "High funding - overleveraged longs - short squeeze risk"
-          : currentRate <= -0.02
+          : currentRate <= -0.0002
             ? "Negative funding - shorts paying - squeeze potential"
             : "Neutral funding rate",
     });

@@ -10,6 +10,8 @@ import type {
   ShortTermScore,
   WhaleData,
   LevelsData,
+  FundingRateData,
+  MultiTimeframeData,
 } from "./lib/types";
 import {
   calculateScore,
@@ -56,6 +58,8 @@ export default function Home() {
   const [binanceData, setBinanceData] = useState<BinanceData | null>(null);
   const [whaleData, setWhaleData] = useState<WhaleData | null>(null);
   const whaleRef = useRef<WhaleData | null>(null);
+  const fundingRef = useRef<FundingRateData | null>(null);
+  const [multiTfData, setMultiTfData] = useState<MultiTimeframeData | null>(null);
   const [levelsData, setLevelsData] = useState<LevelsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,11 +199,12 @@ export default function Home() {
   const fetchBinanceAndWhales = useCallback(async () => {
     try {
       setBinanceError(null);
-      const [binanceRes, whaleRes, fundingRes, orderbookRes] = await Promise.all([
+      const [binanceRes, whaleRes, fundingRes, orderbookRes, multiTfRes] = await Promise.all([
         fetch("/api/binance"),
         fetch("/api/whales").catch(() => null),
         fetch("/api/funding-rate").catch(() => null),
         fetch("/api/orderbook").catch(() => null),
+        fetch("/api/binance-multi").catch(() => null),
       ]);
       if (!binanceRes.ok) {
         throw new Error("Binance API call failed");
@@ -216,18 +221,25 @@ export default function Home() {
       // Parse optional data - pass to scoring if available
       let fundingData = null;
       let orderbookData = null;
+      let multiTf = null;
       if (fundingRes?.ok) {
         fundingData = await fundingRes.json();
+        fundingRef.current = fundingData;
       }
       if (orderbookRes?.ok) {
         orderbookData = await orderbookRes.json();
+      }
+      if (multiTfRes?.ok) {
+        multiTf = await multiTfRes.json();
+        setMultiTfData(multiTf);
       }
 
       const shortTerm = calculateShortTermScore(
         binData,
         whaleRef.current,
         fundingData,
-        orderbookData
+        orderbookData,
+        multiTf
       );
       setShortTermScore(shortTerm);
 
@@ -265,7 +277,7 @@ export default function Home() {
       setFearGreed(fgData);
       setOnchain(onchainData);
 
-      const calculated = calculateScore(marketData, fgData, onchainData);
+      const calculated = calculateScore(marketData, fgData, onchainData, fundingRef.current);
       setScore(calculated);
       setLastUpdate(new Date());
 

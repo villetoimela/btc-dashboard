@@ -213,9 +213,9 @@ export function atr(highs: number[], lows: number[], closes: number[], period: n
     }
 
     if (i === period) {
-      // First ATR is simple average of first `period` true ranges
-      const sum = trueRanges.slice(0, period + 1).reduce((a, b) => a + b, 0);
-      result.push(sum / (period + 1));
+      // First ATR is simple average of `period` proper true ranges (skip index 0 which has no previous close)
+      const sum = trueRanges.slice(1, period + 1).reduce((a, b) => a + b, 0);
+      result.push(sum / period);
     } else {
       // Wilder's smoothing
       const prevAtr = result[i - 1];
@@ -321,12 +321,24 @@ export function adx(highs: number[], lows: number[], closes: number[], period: n
  * Cumulative VWAP: sum(typical_price * volume) / sum(volume)
  * where typical_price = (H+L+C)/3
  */
-export function vwap(highs: number[], lows: number[], closes: number[], volumes: number[]): number[] {
+export function vwap(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  volumes: number[],
+  resetInterval: number = 24
+): number[] {
   const result: number[] = [];
   let cumulativeTPV = 0;
   let cumulativeVol = 0;
 
   for (let i = 0; i < closes.length; i++) {
+    // Reset cumulative sums at the start of each session
+    if (i % resetInterval === 0) {
+      cumulativeTPV = 0;
+      cumulativeVol = 0;
+    }
+
     const typicalPrice = (highs[i] + lows[i] + closes[i]) / 3;
     cumulativeTPV += typicalPrice * volumes[i];
     cumulativeVol += volumes[i];

@@ -74,6 +74,7 @@ export interface BinanceCandle {
   low: number;
   close: number;
   volume: number;
+  takerBuyVolume?: number;
 }
 
 export interface BinanceData {
