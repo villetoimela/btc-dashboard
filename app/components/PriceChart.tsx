@@ -1,16 +1,28 @@
 "use client";
 
-import { useEffect, useRef, memo } from "react";
+import { useEffect, useRef, memo, useState } from "react";
 
 interface PriceChartProps {
   mode: "invest" | "daytrade";
+  currentPrice?: number | null;
+  change24h?: number | null;
 }
 
-function PriceChartInner({ mode }: PriceChartProps) {
+const COLLAPSED_KEY = "btc-dash-chart-collapsed";
+
+function PriceChartInner({ mode, currentPrice, change24h }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(COLLAPSED_KEY) === "true";
+  });
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    localStorage.setItem(COLLAPSED_KEY, String(collapsed));
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (!containerRef.current || collapsed) return;
 
     containerRef.current.innerHTML = "";
 
@@ -51,11 +63,44 @@ function PriceChartInner({ mode }: PriceChartProps) {
     wrapper.appendChild(widgetDiv);
     wrapper.appendChild(script);
     containerRef.current.appendChild(wrapper);
-  }, [mode]);
+  }, [mode, collapsed]);
+
+  const formatPrice = (n: number) =>
+    n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
-    <div className="panel">
-      <div ref={containerRef} className="w-full h-[400px] md:h-[700px]" />
+    <div className="panel relative">
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="absolute top-2 right-2 z-10 w-7 h-7 flex items-center justify-center rounded-md bg-[#242836] hover:bg-[#2d3348] text-gray-400 hover:text-gray-200 transition-colors text-xs"
+        title={collapsed ? "Expand chart" : "Collapse chart"}
+      >
+        {collapsed ? "\u25BC" : "\u25B2"}
+      </button>
+
+      {collapsed ? (
+        <div className="flex items-center justify-between py-1 pr-8">
+          <span className="text-sm text-gray-400">Chart</span>
+          <div className="flex items-center gap-3">
+            {currentPrice != null && (
+              <span className="text-sm font-bold">${formatPrice(currentPrice)}</span>
+            )}
+            {change24h != null && (
+              <span
+                className={`text-sm font-medium ${
+                  change24h > 0 ? "text-green-400" : change24h < 0 ? "text-red-400" : "text-gray-400"
+                }`}
+              >
+                {change24h > 0 ? "+" : ""}
+                {change24h.toFixed(1)}% 24h
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div ref={containerRef} className="w-full h-[300px] md:h-[300px]" />
+      )}
     </div>
   );
 }

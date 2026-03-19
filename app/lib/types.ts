@@ -45,16 +45,26 @@ export type Recommendation = "OSTA" | "KERAA" | "ODOTA" | "VAROVAINEN" | "ALA_OS
 
 export type ShortTermRec = "OSTA_NYT" | "NOUSU" | "NEUTRAALI" | "LASKU" | "MYY";
 
+export interface ConsensusData {
+  bullish: number;
+  bearish: number;
+  neutral: number;
+  agreement: 'strong' | 'moderate' | 'mixed';
+}
+
 export interface DashboardScore {
   total: number; // 0-100
   recommendation: Recommendation;
   indicators: IndicatorResult[];
+  consensus: ConsensusData;
 }
 
 export interface ShortTermScore {
   total: number; // 0-100
   recommendation: ShortTermRec;
   indicators: IndicatorResult[];
+  consensus: ConsensusData;
+  lowConfidence?: boolean;
 }
 
 export interface BinanceCandle {
@@ -86,4 +96,44 @@ export interface WhaleData {
   topTraderPositionRatio: LongShortRatio;
   topTraderAccountRatio: LongShortRatio;
   globalAccountRatio: LongShortRatio;
+}
+
+export interface FundingRateData {
+  current_rate: number;
+  avg_rate_7d: number;
+  history: { time: number; rate: number }[];
+  source: string;
+}
+
+export interface OrderBookData {
+  bid_volume: number;
+  ask_volume: number;
+  imbalance_ratio: number;
+  spread_percent: number;
+  top_bid: number;
+  top_ask: number;
+}
+
+export interface MultiTimeframeData {
+  candles_15m: BinanceCandle[];
+  candles_4h: BinanceCandle[];
+  current_price: number;
+  change_15m: number;
+  change_1h_from_15m: number;
+  change_4h: number;
+  change_12h: number;
+}
+
+export interface LevelsData {
+  high_24h: number;
+  low_24h: number;
+  high_7d: number;
+  low_7d: number;
+  high_30d: number;
+  low_30d: number;
+  ath: number;
+  ath_date: string;
+  distance_from_ath_percent: number;
+  range_30d_position: number;
+  price_percentile_365d: number;
 }

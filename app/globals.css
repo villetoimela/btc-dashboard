@@ -40,3 +40,41 @@ body {
 .spinner {
   @apply animate-spin h-8 w-8 border-4 border-gray-600 border-t-blue-500 rounded-full;
 }
+
+/* Pulse animation for update text */
+@keyframes pulse-once {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+.animate-pulse-once {
+  animation: pulse-once 0.8s ease-in-out;
+}
+
+/* Slide in animation for toasts */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+/* Score change animation */
+@keyframes score-change {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.animate-score-change {
+  animation: score-change 0.3s ease-in-out;
+}

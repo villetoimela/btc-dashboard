@@ -4,6 +4,9 @@ import {
   macd as calcMacd,
   bollingerBands as calcBB,
   lastValid,
+  atr as calcAtr,
+  vwap as calcVwap,
+  detectRsiDivergence,
 } from "./indicators";
 import type {
   MarketData,
@@ -16,6 +19,10 @@ import type {
   ShortTermScore,
   ShortTermRec,
   WhaleData,
+  FundingRateData,
+  OrderBookData,
+  MultiTimeframeData,
+  ConsensusData,
 } from "./types";
 
 function clamp(val: number, min: number, max: number): number {
@@ -26,15 +33,51 @@ function lerp(value: number, fromLow: number, fromHigh: number): number {
   return clamp((value - fromLow) / (fromHigh - fromLow), -1, 1);
 }
 
+function calculateConsensus(indicators: IndicatorResult[]): ConsensusData {
+  let bullish = 0;
+  let bearish = 0;
+  let neutral = 0;
+
+  for (const ind of indicators) {
+    if (ind.signal === "bullish") bullish++;
+    else if (ind.signal === "bearish") bearish++;
+    else neutral++;
+  }
+
+  const total = indicators.length;
+  const maxDirection = Math.max(bullish, bearish);
+  let agreement: 'strong' | 'moderate' | 'mixed';
+  if (maxDirection / total > 0.66) {
+    agreement = 'strong';
+  } else if (maxDirection / total > 0.50) {
+    agreement = 'moderate';
+  } else {
+    agreement = 'mixed';
+  }
+
+  return { bullish, bearish, neutral, agreement };
+}
+
 export function calculateScore(
   market: MarketData,
   fearGreed: FearGreedData,
-  onchain: OnchainData
+  onchain: OnchainData,
+  fundingRate?: FundingRateData | null
 ): DashboardScore {
   const prices = market.prices_history.map(([, p]) => p);
   const indicators: IndicatorResult[] = [];
 
-  // --- 1. Price vs 200d MA (weight 15) ---
+  // Extract OHLC data from candles for ATR calculation
+  const candles = market.candles_history;
+  const candleHighs = candles.map((c) => c.high);
+  const candleLows = candles.map((c) => c.low);
+  const candleCloses = candles.map((c) => c.close);
+
+  // Calculate ATR for use in MACD gradient scoring
+  const atrValues = calcAtr(candleHighs, candleLows, candleCloses, 14);
+  const atrVal = lastValid(atrValues);
+
+  // --- 1. Price vs 200d MA (weight 12) ---
   const ma200 = sma(prices, 200);
   const ma200Val = lastValid(ma200);
   const currentPrice = prices[prices.length - 1];
@@ -44,7 +87,7 @@ export function calculateScore(
     value: `${(priceVsMa200 * 100).toFixed(1)}%`,
     signal: priceVsMa200 > 0 ? "bullish" : priceVsMa200 < -0.1 ? "bearish" : "neutral",
     score: clamp(priceVsMa200 * 5, -1, 1),
-    weight: 15,
+    weight: 12,
     description: isNaN(ma200Val)
       ? "Not enough data"
       : priceVsMa200 > 0
@@ -52,55 +95,98 @@ export function calculateScore(
         : `Price ${(Math.abs(priceVsMa200) * 100).toFixed(1)}% below 200d MA`,
   });
 
-  // --- 2. RSI (weight 12) ---
+  // --- 2. RSI (weight 14) — widened neutral dead zone with piecewise scoring ---
   const rsiValues = calcRsi(prices, 14);
   const rsiVal = lastValid(rsiValues);
   let rsiScore = 0;
   let rsiSignal: "bullish" | "neutral" | "bearish" = "neutral";
-  if (rsiVal < 30) {
-    rsiScore = lerp(rsiVal, 30, 0); // Lower RSI = more bullish
+  if (rsiVal < 25) {
+    rsiScore = 1.0;
     rsiSignal = "bullish";
-  } else if (rsiVal > 70) {
-    rsiScore = -lerp(rsiVal, 70, 100);
+  } else if (rsiVal < 30) {
+    rsiScore = 0.8;
+    rsiSignal = "bullish";
+  } else if (rsiVal < 40) {
+    rsiScore = 0.3;
+    rsiSignal = "bullish";
+  } else if (rsiVal <= 60) {
+    rsiScore = 0.0;
+    rsiSignal = "neutral";
+  } else if (rsiVal <= 70) {
+    rsiScore = -0.3;
+    rsiSignal = "bearish";
+  } else if (rsiVal <= 80) {
+    rsiScore = -0.7;
     rsiSignal = "bearish";
   } else {
-    rsiScore = lerp(rsiVal, 70, 30) * 0.3; // Slight bias
-    rsiSignal = rsiVal < 45 ? "bullish" : rsiVal > 55 ? "bearish" : "neutral";
+    rsiScore = -1.0;
+    rsiSignal = "bearish";
   }
+
+  // RSI Divergence bonus
+  const divergence = detectRsiDivergence(prices, rsiValues);
+  if (divergence === 'bullish_divergence') {
+    rsiScore = Math.min(rsiScore * 1.5, 1.0);
+    if (rsiScore > 0) rsiScore = Math.min(rsiScore, 1.0);
+    else rsiScore = Math.max(rsiScore * 1.5, -1.0);
+  } else if (divergence === 'bearish_divergence') {
+    if (rsiScore < 0) rsiScore = Math.max(rsiScore * 1.5, -1.0);
+    else rsiScore = Math.min(rsiScore * 1.5, 1.0);
+  }
+  rsiScore = clamp(rsiScore, -1, 1);
+
+  const divergenceNote = divergence !== 'none'
+    ? ` (${divergence === 'bullish_divergence' ? 'bullish' : 'bearish'} divergence)`
+    : '';
+
   indicators.push({
     name: "RSI (14)",
     value: rsiVal.toFixed(1),
     signal: rsiSignal,
     score: rsiScore,
-    weight: 12,
+    weight: 14,
     description:
       rsiVal < 30
-        ? "Oversold - buy signal"
+        ? `Oversold - buy signal${divergenceNote}`
         : rsiVal > 70
-          ? "Overbought - caution"
-          : "Normal range",
+          ? `Overbought - caution${divergenceNote}`
+          : `Normal range${divergenceNote}`,
   });
 
-  // --- 3. Fear & Greed (weight 12) ---
+  // --- 3. Fear & Greed (weight 10) — asymmetric scoring ---
   const fgVal = fearGreed.value;
   let fgScore = 0;
   let fgSignal: "bullish" | "neutral" | "bearish" = "neutral";
   if (fgVal <= 25) {
-    fgScore = lerp(fgVal, 25, 0);
+    // Fear side: strong buy signal (historically ~80% accurate)
+    // Linear from 0.4 at fgVal=25 to 1.0 at fgVal=0
+    fgScore = 0.4 + (25 - fgVal) / 25 * 0.6;
     fgSignal = "bullish";
   } else if (fgVal >= 75) {
-    fgScore = -lerp(fgVal, 75, 100);
+    // Greed side: moderate sell (FOMO can sustain rallies), cap at -0.7
+    // Linear from -0.2 at fgVal=75 to -0.7 at fgVal=100
+    fgScore = -0.2 - (fgVal - 75) / 25 * 0.5;
+    fgSignal = "bearish";
+  } else if (fgVal < 40) {
+    // Mild fear: slight bullish bias
+    fgScore = (40 - fgVal) / 15 * 0.3;
+    fgSignal = "bullish";
+  } else if (fgVal > 60) {
+    // Mild greed: slight bearish bias (asymmetric — weaker than fear side)
+    fgScore = -(fgVal - 60) / 15 * 0.15;
     fgSignal = "bearish";
   } else {
-    fgScore = lerp(fgVal, 75, 25) * 0.2;
-    fgSignal = fgVal < 40 ? "bullish" : fgVal > 60 ? "bearish" : "neutral";
+    // 40-60: neutral
+    fgScore = 0;
+    fgSignal = "neutral";
   }
+  fgScore = clamp(fgScore, -1, 1);
   indicators.push({
     name: "Fear & Greed",
     value: `${fgVal} (${fearGreed.value_classification})`,
     signal: fgSignal,
     score: fgScore,
-    weight: 12,
+    weight: 10,
     description:
       fgVal <= 25
         ? "Extreme Fear - contrarian buy"
@@ -109,31 +195,47 @@ export function calculateScore(
           : `${fearGreed.value_classification}`,
   });
 
-  // --- 4. MACD (weight 10) ---
+  // --- 4. MACD (weight 7) — gradient scoring using ATR ---
   const macdResult = calcMacd(prices);
   const macdVal = lastValid(macdResult.macd);
   const macdSignalVal = lastValid(macdResult.signal);
   const macdHist = lastValid(macdResult.histogram);
   const macdBullish = macdVal > macdSignalVal;
+
+  // Gradient score: tanh(histogram / ATR) gives weak score near zero, strong at extremes
+  let macdScore = 0;
+  if (!isNaN(atrVal) && atrVal > 0) {
+    macdScore = Math.tanh(macdHist / atrVal);
+  } else {
+    // Fallback if ATR not available
+    macdScore = macdBullish ? 0.5 : -0.5;
+  }
+  macdScore = clamp(macdScore, -1, 1);
+
   indicators.push({
     name: "MACD",
     value: macdHist.toFixed(0),
     signal: macdBullish ? "bullish" : "bearish",
-    score: macdBullish ? 0.7 : -0.7,
-    weight: 10,
+    score: macdScore,
+    weight: 7,
     description: macdBullish ? "MACD above signal - bullish" : "MACD below signal - bearish",
   });
 
-  // --- 5. 50/200 MA Cross (weight 10) ---
+  // --- 5. 50/200 MA Cross (weight 6) — gradient scoring ---
   const ma50 = sma(prices, 50);
   const ma50Val = lastValid(ma50);
   const goldenCross = ma50Val > ma200Val;
+
+  // Gradient: proximity of MAs determines signal strength
+  const maProximity = ma200Val > 0 ? (ma50Val - ma200Val) / ma200Val : 0;
+  const maCrossScore = clamp(Math.tanh(maProximity * 10), -1, 1);
+
   indicators.push({
     name: "50/200 MA Cross",
     value: goldenCross ? "Golden Cross" : "Death Cross",
     signal: goldenCross ? "bullish" : "bearish",
-    score: goldenCross ? 0.8 : -0.8,
-    weight: 10,
+    score: maCrossScore,
+    weight: 6,
     description: goldenCross
       ? "50d MA above 200d MA - long-term bullish"
       : "50d MA below 200d MA - long-term bearish",
@@ -208,7 +310,7 @@ export function calculateScore(
           : "Mid-range",
   });
 
-  // --- 8. Volume (weight 8) ---
+  // --- 8. Volume (weight 6) ---
   const volumes = market.volumes_history.map(([, v]) => v);
   // Use yesterday's complete candle instead of today's potentially incomplete one
   const recentVol = volumes.length >= 2 ? volumes[volumes.length - 2] : (volumes.slice(-1)[0] || 0);
@@ -235,7 +337,7 @@ export function calculateScore(
     value: `${volRatio.toFixed(2)}x avg`,
     signal: volSignal,
     score: volScore,
-    weight: 8,
+    weight: 6,
     description:
       volRatio > 1.5
         ? priceUp
@@ -280,26 +382,25 @@ export function calculateScore(
           : "Normal dominance",
   });
 
-  // --- 11. Funding Rate proxy (weight 4) ---
-  // We approximate with volume pattern since we don't have a free funding rate API
+  // --- 11. Volume Momentum (weight 3) ---
   const volTrend = volumes.slice(-7).reduce((a, b) => a + b, 0) / 7;
   const volOlder = volumes.slice(-14, -7).reduce((a, b) => a + b, 0) / 7;
   const fundingProxy = volOlder > 0 ? volTrend / volOlder - 1 : 0;
-  let fundScore = 0;
-  let fundSignal: "bullish" | "neutral" | "bearish" = "neutral";
+  let vmScore = 0;
+  let vmSignal: "bullish" | "neutral" | "bearish" = "neutral";
   if (fundingProxy < -0.1) {
-    fundScore = 0.5;
-    fundSignal = "bullish";
+    vmScore = 0.5;
+    vmSignal = "bullish";
   } else if (fundingProxy > 0.3) {
-    fundScore = -0.5;
-    fundSignal = "bearish";
+    vmScore = -0.5;
+    vmSignal = "bearish";
   }
   indicators.push({
     name: "Volume Momentum",
     value: `${(fundingProxy * 100).toFixed(1)}%`,
-    signal: fundSignal,
-    score: fundScore,
-    weight: 4,
+    signal: vmSignal,
+    score: vmScore,
+    weight: 3,
     description:
       fundingProxy < -0.1
         ? "Declining volume - possible bottom"
@@ -307,6 +408,42 @@ export function calculateScore(
           ? "Strong volume surge - overheating"
           : "Normal volume trend",
   });
+
+  // --- 12. Funding Rate (weight 8) — contrarian indicator ---
+  if (fundingRate) {
+    const avgRate7d = fundingRate.avg_rate_7d;
+    // avg_rate_7d > 0.05% = bearish (overleveraged longs), < -0.02% = bullish
+    // Scale linearly between
+    let frScore = 0;
+    let frSignal: "bullish" | "neutral" | "bearish" = "neutral";
+    if (avgRate7d >= 0.05) {
+      frScore = -0.7;
+      frSignal = "bearish";
+    } else if (avgRate7d <= -0.02) {
+      frScore = 0.7;
+      frSignal = "bullish";
+    } else {
+      // Linear interpolation between -0.02 and 0.05
+      // At -0.02: score = 0.7, at 0.05: score = -0.7
+      frScore = 0.7 - ((avgRate7d - (-0.02)) / (0.05 - (-0.02))) * 1.4;
+      frSignal = frScore > 0.1 ? "bullish" : frScore < -0.1 ? "bearish" : "neutral";
+    }
+    frScore = clamp(frScore, -1, 1);
+
+    indicators.push({
+      name: "Funding Rate",
+      value: `${(avgRate7d * 100).toFixed(3)}%`,
+      signal: frSignal,
+      score: frScore,
+      weight: 8,
+      description:
+        avgRate7d >= 0.05
+          ? "High funding - overleveraged longs - bearish"
+          : avgRate7d <= -0.02
+            ? "Negative funding - shorts paying - bullish"
+            : "Neutral funding rate",
+    });
+  }
 
   // --- Calculate total score (0-100) ---
   const totalWeight = indicators.reduce((sum, ind) => sum + ind.weight, 0);
@@ -316,7 +453,32 @@ export function calculateScore(
     const normalizedScore = (ind.score + 1) / 2;
     weightedScore += normalizedScore * ind.weight;
   }
-  const total = Math.round((weightedScore / totalWeight) * 100);
+  let total = Math.round((weightedScore / totalWeight) * 100);
+
+  // --- Dead Cat Bounce filter ---
+  // If 200d MA is declining AND price is below 200d MA AND has been below for < 30 days
+  // → cap max score at 60
+  if (ma200.length >= 21) {
+    const ma200Current = ma200[ma200.length - 1];
+    const ma200Prev20 = ma200[ma200.length - 21];
+    const maIsDeclining = !isNaN(ma200Current) && !isNaN(ma200Prev20) && ma200Current < ma200Prev20;
+
+    if (maIsDeclining && currentPrice < ma200Val) {
+      // Check how long price has been below 200d MA (look back up to 30 days)
+      let daysBelowMa200 = 0;
+      for (let i = prices.length - 1; i >= Math.max(0, prices.length - 30); i--) {
+        if (!isNaN(ma200[i]) && prices[i] < ma200[i]) {
+          daysBelowMa200++;
+        } else {
+          break;
+        }
+      }
+
+      if (daysBelowMa200 < 30) {
+        total = Math.min(total, 60);
+      }
+    }
+  }
 
   let recommendation: Recommendation;
   if (total >= 75) recommendation = "OSTA";
@@ -325,10 +487,13 @@ export function calculateScore(
   else if (total >= 25) recommendation = "VAROVAINEN";
   else recommendation = "ALA_OSTA";
 
+  const consensus = calculateConsensus(indicators);
+
   return {
     total: clamp(total, 0, 100),
     recommendation,
     indicators,
+    consensus,
   };
 }
 
@@ -336,58 +501,136 @@ export function calculateScore(
 
 export function calculateShortTermScore(
   binance: BinanceData,
-  whaleData?: WhaleData | null
+  whaleData?: WhaleData | null,
+  fundingRate?: FundingRateData | null,
+  orderBook?: OrderBookData | null,
+  multiTf?: MultiTimeframeData | null
 ): ShortTermScore {
   const closes = binance.candles.map((c) => c.close);
+  const highs = binance.candles.map((c) => c.high);
+  const lows = binance.candles.map((c) => c.low);
+  const candleVolumes = binance.candles.map((c) => c.volume);
   const currentPrice = closes[closes.length - 1];
   const indicators: IndicatorResult[] = [];
 
-  // --- 1. RSI (14) on 1h candles (weight 25) ---
-  const rsiValues = calcRsi(closes, 14);
-  const rsiVal = lastValid(rsiValues);
+  // Calculate ATR for gradient scoring
+  const atrValues = calcAtr(highs, lows, closes, 14);
+  const atrVal = lastValid(atrValues);
+
+  // --- 1. RSI (14) on 1h candles (weight 18) — with multi-timeframe support ---
+  const rsiValues1h = calcRsi(closes, 14);
+  const rsiVal1h = lastValid(rsiValues1h);
+
+  let finalRsiVal = rsiVal1h;
+
+  if (multiTf) {
+    const closes15m = multiTf.candles_15m.map((c) => c.close);
+    const closes4h = multiTf.candles_4h.map((c) => c.close);
+
+    const rsiValues15m = calcRsi(closes15m, 14);
+    const rsiVal15m = lastValid(rsiValues15m);
+
+    const rsiValues4h = calcRsi(closes4h, 14);
+    const rsiVal4h = lastValid(rsiValues4h);
+
+    // Weighted blend: 0.25 * 15m + 0.50 * 1h + 0.25 * 4h
+    if (!isNaN(rsiVal15m) && !isNaN(rsiVal4h)) {
+      finalRsiVal = 0.25 * rsiVal15m + 0.50 * rsiVal1h + 0.25 * rsiVal4h;
+    }
+  }
+
   let rsiScore = 0;
   let rsiSignal: "bullish" | "neutral" | "bearish" = "neutral";
-  if (rsiVal < 30) {
-    rsiScore = lerp(rsiVal, 30, 0);
+  if (finalRsiVal < 30) {
+    rsiScore = lerp(finalRsiVal, 30, 0);
     rsiSignal = "bullish";
-  } else if (rsiVal > 70) {
-    rsiScore = -lerp(rsiVal, 70, 100);
+  } else if (finalRsiVal > 70) {
+    rsiScore = -lerp(finalRsiVal, 70, 100);
     rsiSignal = "bearish";
   } else {
-    rsiScore = lerp(rsiVal, 70, 30) * 0.3;
-    rsiSignal = rsiVal < 40 ? "bullish" : rsiVal > 60 ? "bearish" : "neutral";
+    rsiScore = lerp(finalRsiVal, 70, 30) * 0.3;
+    rsiSignal = finalRsiVal < 40 ? "bullish" : finalRsiVal > 60 ? "bearish" : "neutral";
   }
+
+  const rsiDisplay = multiTf ? `${finalRsiVal.toFixed(1)} (MTF)` : rsiVal1h.toFixed(1);
   indicators.push({
     name: "RSI (14) 1h",
-    value: rsiVal.toFixed(1),
+    value: rsiDisplay,
     signal: rsiSignal,
     score: rsiScore,
-    weight: 25,
-    description: rsiVal < 30 ? "Oversold — bounce likely" : rsiVal > 70 ? "Overbought — correction possible" : "Normal range",
+    weight: 18,
+    description: finalRsiVal < 30 ? "Oversold — bounce likely" : finalRsiVal > 70 ? "Overbought — correction possible" : "Normal range",
   });
 
-  // --- 2. MACD on 1h candles (weight 20) ---
-  const macdResult = calcMacd(closes);
-  const macdHist = lastValid(macdResult.histogram);
-  const histValues = macdResult.histogram.filter((v) => !isNaN(v));
-  const prevHist = histValues.length >= 2 ? histValues[histValues.length - 2] : 0;
-  const histAccelerating = Math.abs(macdHist) > Math.abs(prevHist);
-  const macdBullish = macdHist > 0;
-  let macdScore = macdBullish ? 0.6 : -0.6;
-  if (histAccelerating) macdScore *= 1.3;
-  macdScore = clamp(macdScore, -1, 1);
+  // --- 2. MACD on 1h candles (weight 12) — gradient scoring with multi-timeframe ---
+  const macdResult1h = calcMacd(closes);
+  const macdHist1h = lastValid(macdResult1h.histogram);
+
+  // Gradient MACD score using ATR
+  let macdScore1h = 0;
+  if (!isNaN(atrVal) && atrVal > 0) {
+    macdScore1h = Math.tanh(macdHist1h / atrVal);
+  } else {
+    macdScore1h = macdHist1h > 0 ? 0.5 : -0.5;
+  }
+
+  let finalMacdScore = macdScore1h;
+
+  if (multiTf) {
+    const closes15m = multiTf.candles_15m.map((c) => c.close);
+    const closes4h = multiTf.candles_4h.map((c) => c.close);
+
+    const macdResult15m = calcMacd(closes15m);
+    const macdHist15m = lastValid(macdResult15m.histogram);
+
+    const macdResult4h = calcMacd(closes4h);
+    const macdHist4h = lastValid(macdResult4h.histogram);
+
+    // Calculate ATR for each timeframe
+    const highs15m = multiTf.candles_15m.map((c) => c.high);
+    const lows15m = multiTf.candles_15m.map((c) => c.low);
+    const atr15m = lastValid(calcAtr(highs15m, lows15m, closes15m, 14));
+
+    const highs4h = multiTf.candles_4h.map((c) => c.high);
+    const lows4h = multiTf.candles_4h.map((c) => c.low);
+    const atr4h = lastValid(calcAtr(highs4h, lows4h, closes4h, 14));
+
+    let score15m = 0;
+    let score4h = 0;
+
+    if (!isNaN(atr15m) && atr15m > 0) {
+      score15m = Math.tanh(macdHist15m / atr15m);
+    } else {
+      score15m = macdHist15m > 0 ? 0.5 : -0.5;
+    }
+
+    if (!isNaN(atr4h) && atr4h > 0) {
+      score4h = Math.tanh(macdHist4h / atr4h);
+    } else {
+      score4h = macdHist4h > 0 ? 0.5 : -0.5;
+    }
+
+    // Weighted blend: 0.25 * 15m + 0.50 * 1h + 0.25 * 4h
+    if (!isNaN(score15m) && !isNaN(score4h)) {
+      finalMacdScore = 0.25 * score15m + 0.50 * macdScore1h + 0.25 * score4h;
+    }
+  }
+
+  finalMacdScore = clamp(finalMacdScore, -1, 1);
+  const macdBullish = finalMacdScore > 0;
+
   indicators.push({
     name: "MACD 1h",
-    value: macdHist.toFixed(0),
+    value: macdHist1h.toFixed(0),
     signal: macdBullish ? "bullish" : "bearish",
-    score: macdScore,
-    weight: 20,
+    score: finalMacdScore,
+    weight: 12,
     description: macdBullish
-      ? histAccelerating ? "MACD accelerating upward" : "MACD positive"
-      : histAccelerating ? "MACD accelerating downward" : "MACD negative",
+      ? multiTf ? "MACD positive (multi-timeframe)" : "MACD positive"
+      : multiTf ? "MACD negative (multi-timeframe)" : "MACD negative",
   });
 
-  // --- 3. 1h/4h/24h Momentum (weight 20) ---
+  // --- 3. 1h/4h/24h Momentum (weight 18) ---
   const { change_1h, change_4h, change_24h } = binance;
   // Weighted combination: 1h has most weight for day trading responsiveness
   const momentumCombo = change_1h * 0.5 + change_4h * 0.3 + change_24h * 0.2;
@@ -407,11 +650,11 @@ export function calculateShortTermScore(
     value: momParts,
     signal: momSignal,
     score: momScore,
-    weight: 20,
+    weight: 18,
     description: momentumCombo > 2 ? "Strong upward momentum" : momentumCombo < -2 ? "Strong downward momentum" : "Calm movement",
   });
 
-  // --- 4. Bollinger Band position on 1h data (weight 20) ---
+  // --- 4. Bollinger Band position on 1h data (weight 15) ---
   const bb = calcBB(closes, 20, 2);
   const bbUpper = lastValid(bb.upper);
   const bbLower = lastValid(bb.lower);
@@ -429,15 +672,15 @@ export function calculateShortTermScore(
     value: `${(bbPosition * 100).toFixed(0)}%`,
     signal: bbSignal,
     score: bbScore,
-    weight: 20,
+    weight: 15,
     description: bbPosition < 0.2 ? "Below lower band — bounce?" : bbPosition > 0.8 ? "Above upper band — overextended?" : "Mid-range",
   });
 
-  // --- 5. Volume spike on 1h data (weight 15) ---
-  const volumes = binance.candles.map((c) => c.volume);
+  // --- 5. Volume spike on 1h data (weight 12) ---
+  const volArr = binance.candles.map((c) => c.volume);
   // Use last complete candle instead of current incomplete one
-  const currentVol = volumes.length >= 2 ? volumes[volumes.length - 2] : (volumes[volumes.length - 1] || 0);
-  const avgVolSlice = volumes.length >= 3 ? volumes.slice(0, -2) : volumes.slice(0, -1);
+  const currentVol = volArr.length >= 2 ? volArr[volArr.length - 2] : (volArr[volArr.length - 1] || 0);
+  const avgVolSlice = volArr.length >= 3 ? volArr.slice(0, -2) : volArr.slice(0, -1);
   const avgVol = avgVolSlice.length > 0 ? avgVolSlice.reduce((a, b) => a + b, 0) / avgVolSlice.length : 0;
   const volSpike = avgVol > 0 ? currentVol / avgVol : 1;
   const priceUp = change_1h > 0;
@@ -451,7 +694,7 @@ export function calculateShortTermScore(
     value: `${volSpike.toFixed(1)}x`,
     signal: volSignal,
     score: volScore,
-    weight: 15,
+    weight: 12,
     description: volSpike > 1.5 ? (priceUp ? "High volume + uptrend" : "High volume + downtrend — panic?") : "Normal volume",
   });
 
@@ -483,6 +726,107 @@ export function calculateShortTermScore(
     });
   }
 
+  // --- 7. Order Book Imbalance (weight 12) ---
+  if (orderBook) {
+    const imbalance = orderBook.imbalance_ratio;
+    let obScore = 0;
+    let obSignal: "bullish" | "neutral" | "bearish" = "neutral";
+
+    if (imbalance > 1.5) {
+      obScore = 0.8;
+      obSignal = "bullish";
+    } else if (imbalance < 0.7) {
+      obScore = -0.8;
+      obSignal = "bearish";
+    } else {
+      // Linear interpolation between 0.7 and 1.5
+      // At 0.7: -0.8, at 1.1 (midpoint): 0, at 1.5: 0.8
+      obScore = ((imbalance - 0.7) / (1.5 - 0.7)) * 1.6 - 0.8;
+      obSignal = obScore > 0.1 ? "bullish" : obScore < -0.1 ? "bearish" : "neutral";
+    }
+
+    // Spread warning: if spread is too wide, reduce score magnitude
+    if (orderBook.spread_percent > 0.05) {
+      obScore = obScore > 0 ? Math.max(obScore - 0.2, 0) : Math.min(obScore + 0.2, 0);
+    }
+
+    obScore = clamp(obScore, -1, 1);
+
+    indicators.push({
+      name: "Order Book",
+      value: `${imbalance.toFixed(2)} (${orderBook.spread_percent.toFixed(3)}% spread)`,
+      signal: obSignal,
+      score: obScore,
+      weight: 12,
+      description:
+        imbalance > 1.5
+          ? "Strong bid-side imbalance — buyers dominating"
+          : imbalance < 0.7
+            ? "Strong ask-side imbalance — sellers dominating"
+            : "Order book relatively balanced",
+    });
+  }
+
+  // --- 8. Funding Rate current (weight 10) — contrarian ---
+  if (fundingRate) {
+    const currentRate = fundingRate.current_rate;
+    let frScore = 0;
+    let frSignal: "bullish" | "neutral" | "bearish" = "neutral";
+
+    if (currentRate >= 0.05) {
+      frScore = -0.7;
+      frSignal = "bearish";
+    } else if (currentRate <= -0.02) {
+      frScore = 0.7;
+      frSignal = "bullish";
+    } else {
+      // Linear interpolation between -0.02 and 0.05
+      frScore = 0.7 - ((currentRate - (-0.02)) / (0.05 - (-0.02))) * 1.4;
+      frSignal = frScore > 0.1 ? "bullish" : frScore < -0.1 ? "bearish" : "neutral";
+    }
+    frScore = clamp(frScore, -1, 1);
+
+    indicators.push({
+      name: "Funding Rate",
+      value: `${(currentRate * 100).toFixed(3)}%`,
+      signal: frSignal,
+      score: frScore,
+      weight: 10,
+      description:
+        currentRate >= 0.05
+          ? "High funding - overleveraged longs - short squeeze risk"
+          : currentRate <= -0.02
+            ? "Negative funding - shorts paying - squeeze potential"
+            : "Neutral funding rate",
+    });
+  }
+
+  // --- 9. VWAP (weight 12) ---
+  if (closes.length > 0 && candleVolumes.length > 0) {
+    const vwapValues = calcVwap(highs, lows, closes, candleVolumes);
+    const vwapVal = lastValid(vwapValues);
+
+    if (!isNaN(vwapVal) && !isNaN(atrVal) && atrVal > 0) {
+      let vwapScore = clamp((currentPrice - vwapVal) / atrVal * 0.5, -1, 1);
+      let vwapSignal: "bullish" | "neutral" | "bearish" = "neutral";
+
+      if (vwapScore > 0.1) vwapSignal = "bullish";
+      else if (vwapScore < -0.1) vwapSignal = "bearish";
+
+      indicators.push({
+        name: "VWAP",
+        value: `$${vwapVal.toFixed(0)}`,
+        signal: vwapSignal,
+        score: vwapScore,
+        weight: 12,
+        description:
+          currentPrice > vwapVal
+            ? `Price $${(currentPrice - vwapVal).toFixed(0)} above VWAP — bullish bias`
+            : `Price $${(vwapVal - currentPrice).toFixed(0)} below VWAP — bearish bias`,
+      });
+    }
+  }
+
   // --- Calculate total ---
   const totalWeight = indicators.reduce((sum, ind) => sum + ind.weight, 0);
   let weightedScore = 0;
@@ -499,7 +843,19 @@ export function calculateShortTermScore(
   else if (total >= 30) recommendation = "LASKU";
   else recommendation = "MYY";
 
-  return { total: clamp(total, 0, 100), recommendation, indicators };
+  const consensus = calculateConsensus(indicators);
+
+  // Low confidence flag: if fewer than 4 indicators agree on a direction
+  const maxDirectionCount = Math.max(consensus.bullish, consensus.bearish);
+  const lowConfidence = maxDirectionCount < 4;
+
+  return {
+    total: clamp(total, 0, 100),
+    recommendation,
+    indicators,
+    consensus,
+    ...(lowConfidence ? { lowConfidence: true } : {}),
+  };
 }
 
 export function getShortTermStyle(rec: ShortTermRec) {
