@@ -49,7 +49,7 @@ function makeFallbackRatio() {
   };
 }
 
-// Try fetching long/short data from a specific Binance domain
+// Try Binance futures data from a specific domain
 async function tryBinanceDomain(baseUrl: string): Promise<{
   positionData: BinanceLongShortEntry[];
   accountData: BinanceLongShortEntry[];
@@ -73,61 +73,100 @@ async function tryBinanceDomain(baseUrl: string): Promise<{
       const accountData = await accountRes.json();
       const globalData = await globalRes.json();
 
-      // Validate that we got actual array data (not an error object)
       if (Array.isArray(positionData) && positionData.length > 0 &&
           Array.isArray(accountData) && accountData.length > 0 &&
           Array.isArray(globalData) && globalData.length > 0) {
         return { positionData, accountData, globalData };
       }
-      console.warn(`${baseUrl}: response was not valid array data`);
-      return null;
     }
-
-    const status = [positionRes.status, accountRes.status, globalRes.status];
-    console.warn(`${baseUrl} returned non-OK status: ${status.join(", ")}`);
     return null;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`${baseUrl} unavailable: ${msg}`);
+  } catch {
+    return null;
+  }
+}
+
+// Bybit long/short ratio as fallback (not geo-blocked)
+interface BybitRatioEntry {
+  symbol: string;
+  buyRatio: string;
+  sellRatio: string;
+  timestamp: string;
+}
+
+async function tryBybit() {
+  try {
+    const res = await fetchWithTimeout(
+      "https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=BTCUSDT&period=1h&limit=24"
+    );
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    const list = json?.result?.list;
+    if (!Array.isArray(list) || list.length === 0) return null;
+
+    // Bybit format: { buyRatio: "0.55", sellRatio: "0.45", timestamp: "1234567890" }
+    const sorted = [...list].sort(
+      (a: BybitRatioEntry, b: BybitRatioEntry) =>
+        parseInt(a.timestamp) - parseInt(b.timestamp)
+    );
+    const latest = sorted[sorted.length - 1];
+
+    const longPercent = parseFloat(latest.buyRatio) * 100;
+    const shortPercent = parseFloat(latest.sellRatio) * 100;
+    const ratio = shortPercent > 0 ? longPercent / shortPercent : 1;
+
+    const history = sorted.map((e: BybitRatioEntry) => ({
+      time: parseInt(e.timestamp) * 1000,
+      longPercent: parseFloat(e.buyRatio) * 100,
+      shortPercent: parseFloat(e.sellRatio) * 100,
+    }));
+
+    const ratioData = { longPercent, shortPercent, ratio, history };
+
+    // Bybit only gives global account ratio, use it for all 3
+    return {
+      topTraderPositionRatio: ratioData,
+      topTraderAccountRatio: ratioData,
+      globalAccountRatio: ratioData,
+      source: "bybit",
+    };
+  } catch {
     return null;
   }
 }
 
 export async function GET() {
   try {
-    // Try multiple Binance domains in order:
-    // 1. api.binance.com - main API domain, serves futures data endpoints without
-    //    the geo-block that affects fapi.binance.com (the trading domain)
-    // 2. fapi.binance.com - direct futures API, geo-blocked in the US
+    // 1. Try Binance domains
     const domains = [
-      "https://api.binance.com",
       "https://fapi.binance.com",
+      "https://api.binance.com",
     ];
 
-    let result: Awaited<ReturnType<typeof tryBinanceDomain>> = null;
-    let usedDomain = "";
-
     for (const domain of domains) {
-      result = await tryBinanceDomain(domain);
+      const result = await tryBinanceDomain(domain);
       if (result) {
-        usedDomain = domain;
-        break;
+        return NextResponse.json({
+          topTraderPositionRatio: parseRatioData(result.positionData),
+          topTraderAccountRatio: parseRatioData(result.accountData),
+          globalAccountRatio: parseRatioData(result.globalData),
+          source: `binance (${domain})`,
+        }, {
+          headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
+        });
       }
     }
 
-    if (result) {
-      return NextResponse.json({
-        topTraderPositionRatio: parseRatioData(result.positionData),
-        topTraderAccountRatio: parseRatioData(result.accountData),
-        globalAccountRatio: parseRatioData(result.globalData),
-        source: `binance (${usedDomain})`,
-      }, {
+    // 2. Try Bybit as fallback
+    const bybitResult = await tryBybit();
+    if (bybitResult) {
+      return NextResponse.json(bybitResult, {
         headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
       });
     }
 
-    // Fallback: return neutral values so the UI doesn't break
-    console.warn("Using fallback whale data (all Binance endpoints unavailable from this region)");
+    // 3. Final fallback: neutral values
+    console.warn("All whale data sources unavailable");
     return NextResponse.json({
       topTraderPositionRatio: makeFallbackRatio(),
       topTraderAccountRatio: makeFallbackRatio(),
